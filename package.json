@@ -1,0 +1,19 @@
+{
+  "name": "event-inventory-tracker",
+  "version": "1.0.0",
+  "description": "Real-time event inventory tracker for SQUATWOLF events",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node server.js"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.103.2",
+    "cors": "^2.8.5",
+    "dotenv": "^17.4.2",
+    "express": "^4.21.0",
+    "multer": "^2.1.1",
+    "socket.io": "^4.8.0",
+    "uuid": "^10.0.0"
+  }
+}
