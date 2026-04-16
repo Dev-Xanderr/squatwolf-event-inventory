@@ -192,11 +192,6 @@ function AdminLoginModal({ onLogin, onClose }) {
             {loading ? '…' : (mode === 'login' ? 'Log in' : 'Create account')}
           </button>
         </div>
-        <div style={{ marginTop: 12, fontSize: 13, color: '#888', textAlign: 'center' }}>
-          {mode === 'login'
-            ? <span>New admin? <button type="button" className="link-btn" onClick={() => { setMode('signup'); setErr(''); }}>Create account</button></span>
-            : <span>Have an account? <button type="button" className="link-btn" onClick={() => { setMode('login'); setErr(''); }}>Log in</button></span>}
-        </div>
       </form>
     </div>
   );
