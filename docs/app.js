@@ -139,34 +139,26 @@ function AttachmentStrip({ itemId, eventId, adminName, isAdmin }) {
 }
 
 // ---------- admin login modal ----------
+// Single shared password — anyone who knows it gets admin access.
+const ADMIN_EMAIL = 'admin@squatwolf.admin';
+
 function AdminLoginModal({ onLogin, onClose }) {
-  const [mode, setMode]         = useState('login');
-  const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [err, setErr]           = useState('');
   const [loading, setLoading]   = useState(false);
-
-  const toEmail = u => `${u.toLowerCase().trim()}@squatwolf.admin`;
 
   async function submit(e) {
     e.preventDefault();
     setErr(''); setLoading(true);
     try {
-      if (mode === 'signup') {
-        const { error } = await sb.auth.signUp({
-          email: toEmail(username), password,
-          options: { data: { name: username.trim() } },
-        });
-        if (error) throw new Error(error.message.includes('already') ? 'Username already taken' : error.message);
-      }
-      const { data, error: signInErr } = await sb.auth.signInWithPassword({
-        email: toEmail(username), password,
+      const { data, error } = await sb.auth.signInWithPassword({
+        email: ADMIN_EMAIL, password,
       });
-      if (signInErr) throw new Error('Invalid username or password');
+      if (error) throw new Error('Wrong password');
       onLogin({
         token: data.session.access_token,
         id: data.user.id,
-        name: data.user.user_metadata?.name || username.trim(),
+        name: 'Admin',
       });
     } catch (e) { setErr(e.message); }
     finally { setLoading(false); }
@@ -174,23 +166,17 @@ function AdminLoginModal({ onLogin, onClose }) {
 
   return (
     <div className="backdrop" onClick={onClose}>
-      <form className="modal" style={{ maxWidth: 380 }} onClick={e => e.stopPropagation()} onSubmit={submit}>
-        <h2>{mode === 'login' ? 'Admin Login' : 'Create Admin Account'}</h2>
-        <div className="field">
-          <label>Username</label>
-          <input value={username} onChange={e => setUsername(e.target.value)} autoFocus autoComplete="username" />
-        </div>
+      <form className="modal" style={{ maxWidth: 340 }} onClick={e => e.stopPropagation()} onSubmit={submit}>
+        <h2>Admin Login</h2>
         <div className="field">
           <label>Password</label>
           <input type="password" value={password} onChange={e => setPassword(e.target.value)}
-            autoComplete={mode === 'login' ? 'current-password' : 'new-password'} />
+            autoFocus autoComplete="current-password" placeholder="Enter admin password" />
         </div>
         <div className="err">{err}</div>
         <div className="actions">
           <button type="button" className="btn ghost" onClick={onClose}>Cancel</button>
-          <button type="submit" className="btn primary" disabled={loading}>
-            {loading ? '…' : (mode === 'login' ? 'Log in' : 'Create account')}
-          </button>
+          <button type="submit" className="btn primary" disabled={loading}>{loading ? '…' : 'Log in'}</button>
         </div>
       </form>
     </div>
