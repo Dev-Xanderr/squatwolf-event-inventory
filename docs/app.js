@@ -474,9 +474,10 @@ function UpdateEventItemModal({ eventItem, item, admin, onClose, onSaved }) {
   const [location, setLocation]   = useState(eventItem.current_location || '');
   const [condition, setCondition] = useState(eventItem.condition || item?.condition || 'good');
   const [notes, setNotes]         = useState(eventItem.notes || '');
-  const [returning, setReturning] = useState(false);
-  const [retCondition, setRetCond]= useState(eventItem.condition || 'good');
-  const [retLocation, setRetLoc]  = useState(item?.storage_location || '');
+  const [returning, setReturning]   = useState(false);
+  const [retCondition, setRetCond]  = useState(eventItem.condition || 'good');
+  const [retLocation, setRetLoc]    = useState(item?.storage_location || '');
+  const [processedBy, setProcessed] = useState(admin.name);
   const [err, setErr]             = useState('');
   const [saving, setSaving]       = useState(false);
 
@@ -489,10 +490,10 @@ function UpdateEventItemModal({ eventItem, item, admin, onClose, onSaved }) {
 
       if (returning) {
         payload.status = 'returned';
-        payload.returned_by = admin.name;
+        payload.returned_by = processedBy.trim() || admin.name;
         payload.returned_at = now;
         payload.condition_on_return = retCondition;
-        payload.current_location = retLocation.trim(); // overwrite with return destination
+        payload.current_location = retLocation.trim();
         // update master item condition on return
         await sb.from('items').update({ condition: retCondition, updated_at: now, updated_by: admin.name })
           .eq('id', item.id);
@@ -511,7 +512,7 @@ function UpdateEventItemModal({ eventItem, item, admin, onClose, onSaved }) {
         await sb.from('history').insert({
           item_id: item.id, event_item_id: eventItem.id, event_id: eventItem.event_id,
           action, changes: returning
-            ? { note: `Returned by ${admin.name} on ${new Date(now).toLocaleString()}. Sent to: ${retLocation.trim()||'—'}. Condition: ${CLABEL[retCondition]||retCondition}` }
+            ? { note: `Returned on ${new Date(now).toLocaleString()}. Sent to: ${retLocation.trim()||'—'}. Processed by: ${processedBy.trim()||admin.name}. Condition: ${CLABEL[retCondition]||retCondition}` }
             : changes,
           changed_by: admin.name, changed_at: now,
         });
@@ -561,6 +562,10 @@ function UpdateEventItemModal({ eventItem, item, admin, onClose, onSaved }) {
               <input value={retLocation} onChange={e=>setRetLoc(e.target.value)}
                 placeholder={item?.storage_location || 'e.g. Warehouse — Shelf A1'} autoFocus />
             </div>
+            <div className="field"><label>Processed by (who arranged transport)</label>
+              <input value={processedBy} onChange={e=>setProcessed(e.target.value)}
+                placeholder="Name of person who called transport" />
+            </div>
             <div className="field"><label>Condition on return</label>
               <select value={retCondition} onChange={e=>setRetCond(e.target.value)}>
                 {CONDITIONS.map(c=><option key={c.value} value={c.value}>{c.label}</option>)}
@@ -570,8 +575,8 @@ function UpdateEventItemModal({ eventItem, item, admin, onClose, onSaved }) {
               <div style={{fontFamily:"'Azeret Mono',monospace",fontSize:10,color:'#7A7A7A',letterSpacing:'0.06em',textTransform:'uppercase',marginBottom:6}}>Return summary</div>
               <div style={{fontFamily:"'Azeret Mono',monospace",fontSize:12,display:'flex',flexDirection:'column',gap:4}}>
                 <div><span style={{color:'#7A7A7A'}}>Date: </span>{new Date().toLocaleString()}</div>
-                <div><span style={{color:'#7A7A7A'}}>Sent to: </span>{retLocation||'—'}</div>
-                <div><span style={{color:'#7A7A7A'}}>Processed by: </span>{admin.name}</div>
+                <div><span style={{color:'#7A7A7A'}}>Returned to: </span>{retLocation||'—'}</div>
+                <div><span style={{color:'#7A7A7A'}}>Processed by: </span>{processedBy||'—'}</div>
               </div>
             </div>
           </>
@@ -696,9 +701,9 @@ function EventDetail({ event, admin, onBack }) {
                     <span className="k">Storage</span><span className="v">{it.storage_location||'—'}</span>
                     <span className="k">Assigned by</span><span className="v">{ei.assigned_by||'—'}</span>
                     {ei.returned_at && <>
-                      <span className="k">Returned by</span><span className="v">{ei.returned_by}</span>
                       <span className="k">Return date</span><span className="v">{fmtTime(ei.returned_at)}</span>
-                      <span className="k">Sent to</span><span className="v">{ei.current_location||'—'}</span>
+                      <span className="k">Returned to</span><span className="v">{ei.current_location||'—'}</span>
+                      <span className="k">Processed by</span><span className="v">{ei.returned_by||'—'}</span>
                       <span className="k">Return cond.</span><span className="v">{CLABEL[ei.condition_on_return]||ei.condition_on_return||'—'}</span>
                     </>}
                     {!ei.returned_at && ei.current_location && <><span className="k">Location</span><span className="v">{ei.current_location}</span></>}
