@@ -395,19 +395,33 @@ function EventFormModal({ admin, onClose, onSaved }) {
 
 // ---------- assign items to event ----------
 function AssignItemsModal({ event, admin, existingItemIds, onClose, onAssigned }) {
-  const [items, setItems]   = useState([]);
+  const [items, setItems]       = useState([]);
+  const [activeOut, setActiveOut] = useState({}); // item_id → deployment name (checked out elsewhere)
   const [selected, setSelected] = useState(new Set());
-  const [saving, setSaving] = useState(false);
-  const [query, setQuery]   = useState('');
+  const [saving, setSaving]     = useState(false);
+  const [query, setQuery]       = useState('');
 
   useEffect(() => {
     sb.from('items').select('*').order('name').then(({ data }) => setItems(data || []));
+    // find items currently out at OTHER deployments
+    sb.from('event_items').select('item_id, events(name)').eq('status', 'out')
+      .then(({ data }) => {
+        const m = {};
+        (data||[]).forEach(r => {
+          // only block if it's a different deployment
+          if (r.event_id !== event.id) m[r.item_id] = r.events?.name || 'another deployment';
+        });
+        setActiveOut(m);
+      });
   }, []);
 
-  const available = items.filter(it =>
+  // split items into available and unavailable for clear display
+  const matching = items.filter(it =>
     !existingItemIds.has(it.id) &&
     it.name.toLowerCase().includes(query.toLowerCase())
   );
+  const available   = matching.filter(it => !activeOut[it.id]);
+  const unavailable = matching.filter(it =>  activeOut[it.id]);
 
   function toggle(id) {
     setSelected(prev => {
@@ -441,22 +455,46 @@ function AssignItemsModal({ event, admin, existingItemIds, onClose, onAssigned }
   return (
     <div className="backdrop" onClick={onClose}>
       <div className="modal" onClick={e=>e.stopPropagation()}>
-        <h2>Assign items to event</h2>
+        <h2>Assign items</h2>
         <input style={{marginBottom:10,width:'100%',background:'#1a1a1a',border:'1px solid #2a2a2a',color:'#FAFAFA',padding:'10px 12px',outline:'none',fontFamily:"'Azeret Mono',monospace",fontSize:13}} placeholder="Search items…"
           value={query} onChange={e=>setQuery(e.target.value)} />
-        <div style={{maxHeight:300,overflowY:'auto',display:'flex',flexDirection:'column',gap:6}}>
-          {available.length === 0 && <div style={{color:'#888',fontSize:13}}>No available items.</div>}
+        <div style={{maxHeight:340,overflowY:'auto',display:'flex',flexDirection:'column',gap:6}}>
+          {available.length === 0 && unavailable.length === 0 && (
+            <div style={{color:'#7A7A7A',fontFamily:"'Azeret Mono',monospace",fontSize:12}}>No items available.</div>
+          )}
+
+          {/* selectable items */}
           {available.map(it => (
             <label key={it.id} className={`check-row${selected.has(it.id)?' selected':''}`}>
               <input type="checkbox" checked={selected.has(it.id)} onChange={()=>toggle(it.id)} style={{accentColor:'#B93A32',width:16,height:16}} />
               <div style={{flex:1}}>
-                <div style={{fontWeight:600,fontFamily:"'Barlow Condensed',sans-serif",fontSize:17,letterSpacing:'0.04em',textTransform:'uppercase'}}>{it.name}</div>
+                <div style={{fontFamily:"'Barlow Condensed',sans-serif",fontSize:17,letterSpacing:'0.04em',textTransform:'uppercase'}}>{it.name}</div>
                 <div style={{fontFamily:"'Azeret Mono',monospace",fontSize:11,color:'#7A7A7A'}}>{it.category} · {it.storage_location||'No storage set'}</div>
               </div>
               <span className={`badge ${it.condition}`}>{CLABEL[it.condition]}</span>
             </label>
           ))}
+
+          {/* unavailable — out at another deployment */}
+          {unavailable.length > 0 && (
+            <>
+              <div style={{fontFamily:"'Azeret Mono',monospace",fontSize:10,color:'#7A7A7A',letterSpacing:'0.08em',textTransform:'uppercase',marginTop:6,marginBottom:2}}>
+                Currently out — unavailable
+              </div>
+              {unavailable.map(it => (
+                <div key={it.id} className="check-row" style={{opacity:0.45,cursor:'not-allowed'}}>
+                  <div style={{width:16,height:16,border:'1px solid #3a3a3a',flexShrink:0}} />
+                  <div style={{flex:1}}>
+                    <div style={{fontFamily:"'Barlow Condensed',sans-serif",fontSize:17,letterSpacing:'0.04em',textTransform:'uppercase'}}>{it.name}</div>
+                    <div style={{fontFamily:"'Azeret Mono',monospace",fontSize:11,color:'#d48a34'}}>Out at: {activeOut[it.id]}</div>
+                  </div>
+                  <span className="badge status-out">Out</span>
+                </div>
+              ))}
+            </>
+          )}
         </div>
+
         {selected.size > 0 && <div style={{fontFamily:"'Azeret Mono',monospace",fontSize:12,color:'#B93A32',marginTop:8}}>{selected.size} item{selected.size>1?'s':''} selected</div>}
         <div className="actions" style={{marginTop:12}}>
           <button type="button" className="btn ghost" onClick={onClose}>Cancel</button>
