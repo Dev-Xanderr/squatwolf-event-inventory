@@ -33,7 +33,7 @@ function fmtTime(iso) {
 }
 function actionLabel(a) {
   return { item_created:'Item added', item_updated:'Item updated', item_deleted:'Item removed',
-    assigned:'Assigned to event', location_updated:'Location updated', condition_changed:'Condition changed',
+    assigned:'Assigned to deployment', location_updated:'Location updated', condition_changed:'Condition changed',
     notes_updated:'Notes updated', returned:'Returned', photo_added:'Photo added', photo_removed:'Photo removed' }[a] || a;
 }
 function isVideo(m) { return (m||'').startsWith('video/'); }
@@ -373,9 +373,9 @@ function EventFormModal({ admin, onClose, onSaved }) {
   return (
     <div className="backdrop" onClick={onClose}>
       <form className="modal" style={{maxWidth:400}} onClick={e=>e.stopPropagation()} onSubmit={save}>
-        <h2>New Event</h2>
+        <h2>New Deployment</h2>
         <div className="field"><label>Event name</label>
-          <input value={name} onChange={e=>setName(e.target.value)} placeholder="e.g. Al Wasl Volleyball" autoFocus />
+          <input value={name} onChange={e=>setName(e.target.value)} placeholder="e.g. Al Wasl Volleyball Tournament" autoFocus />
         </div>
         <div className="field"><label>Date</label>
           <input type="date" value={date} onChange={e=>setDate(e.target.value)} />
@@ -430,7 +430,7 @@ function AssignItemsModal({ event, admin, existingItemIds, onClose, onAssigned }
       if (ei) {
         await sb.from('history').insert({
           item_id, event_item_id: ei.id, event_id: event.id,
-          action: 'assigned', changes: { note: `Assigned to event: ${event.name}` },
+          action: 'assigned', changes: { note: `Assigned to deployment: ${event.name}` },
           changed_by: admin.name, changed_at: now,
         });
       }
@@ -743,7 +743,7 @@ function EventDetail({ event, admin, onBack }) {
 // ---------- items tab (master list) ----------
 function ItemsTab({ admin }) {
   const [items, setItems]       = useState([]);
-  const [outIds, setOutIds]     = useState(new Set()); // item_ids currently checked out
+  const [outMap, setOutMap]     = useState({}); // item_id → event name for checked-out items
   const [query, setQuery]       = useState('');
   const [catFilter, setCat]     = useState('all');
   const [condFilter, setCond]   = useState('all');
@@ -753,9 +753,13 @@ function ItemsTab({ admin }) {
 
   useEffect(() => {
     sb.from('items').select('*').order('name').then(({ data }) => setItems(data || []));
-    // load which items are currently out at any event
-    sb.from('event_items').select('item_id').eq('status', 'out')
-      .then(({ data }) => setOutIds(new Set((data||[]).map(r => r.item_id))));
+    // load which items are currently out and which deployment they're in
+    sb.from('event_items').select('item_id, events(name)').eq('status', 'out')
+      .then(({ data }) => {
+        const m = {};
+        (data||[]).forEach(r => { m[r.item_id] = r.events?.name || 'Unknown'; });
+        setOutMap(m);
+      });
   }, []);
 
   // realtime — items table
@@ -775,8 +779,12 @@ function ItemsTab({ admin }) {
   useEffect(() => {
     const ch = sb.channel('event-items-status')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'event_items' }, () => {
-        sb.from('event_items').select('item_id').eq('status', 'out')
-          .then(({ data }) => setOutIds(new Set((data||[]).map(r => r.item_id))));
+        sb.from('event_items').select('item_id, events(name)').eq('status', 'out')
+          .then(({ data }) => {
+            const m = {};
+            (data||[]).forEach(r => { m[r.item_id] = r.events?.name || 'Unknown'; });
+            setOutMap(m);
+          });
       })
       .subscribe();
     return () => sb.removeChannel(ch);
@@ -818,8 +826,8 @@ function ItemsTab({ admin }) {
               <div className="row">
                 <div className="name">{it.name}</div>
                 <div style={{display:'flex',gap:5,alignItems:'center',flexShrink:0}}>
-                  <span className={`badge ${outIds.has(it.id) ? 'status-out' : 'status-stored'}`}>
-                    {outIds.has(it.id) ? 'Out' : 'Stored'}
+                  <span className={`badge ${outMap[it.id] ? 'status-out' : 'status-stored'}`}>
+                    {outMap[it.id] ? 'Out' : 'Stored'}
                   </span>
                   <span className={`badge ${it.condition}`}>{CLABEL[it.condition]}</span>
                 </div>
@@ -827,6 +835,7 @@ function ItemsTab({ admin }) {
               <div className="fields">
                 <span className="k">Category</span><span className="v">{it.category||'—'}</span>
                 <span className="k">Stored at</span><span className="v">{it.storage_location||'—'}</span>
+                {outMap[it.id] && <><span className="k">In use for</span><span className="v" style={{color:'#d48a34'}}>{outMap[it.id]}</span></>}
                 {it.notes && <><span className="k">Notes</span><span className="v">{it.notes}</span></>}
               </div>
               <div className="meta">Updated by {it.updated_by||'—'} · {fmtTime(it.updated_at)}</div>
@@ -874,13 +883,13 @@ function EventsTab({ admin }) {
     <div className="container">
       {admin && (
         <div style={{marginBottom:12}}>
-          <button className="btn primary" onClick={()=>setNewOpen(true)}>+ New event</button>
+          <button className="btn primary" onClick={()=>setNewOpen(true)}>+ New deployment</button>
         </div>
       )}
       {events.length === 0 ? (
         <div className="empty">
-          {admin ? <>No events yet. <button className="link-btn" onClick={()=>setNewOpen(true)}>Create one →</button></>
-            : 'No events yet.'}
+          {admin ? <>No deployments yet. <button className="link-btn" onClick={()=>setNewOpen(true)}>Create one →</button></>
+            : 'No deployments yet.'}
         </div>
       ) : (
         <div className="items">
@@ -947,7 +956,7 @@ function App() {
 
       {/* tabs */}
       <div className="tabs">
-        {[['items','Items'],['events','Events']].map(([key,label]) => (
+        {[['items','Items'],['events','Deployments']].map(([key,label]) => (
           <button key={key} onClick={()=>setTab(key)} className={tab===key?'active':''}>
             {label}
           </button>
