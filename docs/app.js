@@ -476,6 +476,7 @@ function UpdateEventItemModal({ eventItem, item, admin, onClose, onSaved }) {
   const [notes, setNotes]         = useState(eventItem.notes || '');
   const [returning, setReturning] = useState(false);
   const [retCondition, setRetCond]= useState(eventItem.condition || 'good');
+  const [retLocation, setRetLoc]  = useState(item?.storage_location || '');
   const [err, setErr]             = useState('');
   const [saving, setSaving]       = useState(false);
 
@@ -491,6 +492,7 @@ function UpdateEventItemModal({ eventItem, item, admin, onClose, onSaved }) {
         payload.returned_by = admin.name;
         payload.returned_at = now;
         payload.condition_on_return = retCondition;
+        payload.current_location = retLocation.trim(); // overwrite with return destination
         // update master item condition on return
         await sb.from('items').update({ condition: retCondition, updated_at: now, updated_by: admin.name })
           .eq('id', item.id);
@@ -509,7 +511,7 @@ function UpdateEventItemModal({ eventItem, item, admin, onClose, onSaved }) {
         await sb.from('history').insert({
           item_id: item.id, event_item_id: eventItem.id, event_id: eventItem.event_id,
           action, changes: returning
-            ? { note: `Returned by ${admin.name}. Condition: ${CLABEL[retCondition]||retCondition}` }
+            ? { note: `Returned by ${admin.name} on ${new Date(now).toLocaleString()}. Sent to: ${retLocation.trim()||'—'}. Condition: ${CLABEL[retCondition]||retCondition}` }
             : changes,
           changed_by: admin.name, changed_at: now,
         });
@@ -532,17 +534,19 @@ function UpdateEventItemModal({ eventItem, item, admin, onClose, onSaved }) {
           {item?.storage_location||'—'} · Assigned by {eventItem.assigned_by}
         </div>
 
-        <div className="field"><label>Current location at event</label>
-          <input value={location} onChange={e=>setLocation(e.target.value)} placeholder="e.g. Main Stage" autoFocus />
-        </div>
-        <div className="field"><label>Condition</label>
-          <select value={condition} onChange={e=>setCondition(e.target.value)}>
-            {CONDITIONS.map(c=><option key={c.value} value={c.value}>{c.label}</option>)}
-          </select>
-        </div>
-        <div className="field"><label>Notes</label>
-          <textarea value={notes} onChange={e=>setNotes(e.target.value)} placeholder="Anything relevant" />
-        </div>
+        {!returning && <>
+          <div className="field"><label>Current location at event</label>
+            <input value={location} onChange={e=>setLocation(e.target.value)} placeholder="e.g. Main Stage" autoFocus />
+          </div>
+          <div className="field"><label>Condition</label>
+            <select value={condition} onChange={e=>setCondition(e.target.value)}>
+              {CONDITIONS.map(c=><option key={c.value} value={c.value}>{c.label}</option>)}
+            </select>
+          </div>
+          <div className="field"><label>Notes</label>
+            <textarea value={notes} onChange={e=>setNotes(e.target.value)} placeholder="Anything relevant" />
+          </div>
+        </>}
 
         {eventItem.status !== 'returned' && (
           <label className="check-row" style={{marginBottom:12}}>
@@ -552,11 +556,25 @@ function UpdateEventItemModal({ eventItem, item, admin, onClose, onSaved }) {
         )}
 
         {returning && (
-          <div className="field"><label>Condition on return</label>
-            <select value={retCondition} onChange={e=>setRetCond(e.target.value)}>
-              {CONDITIONS.map(c=><option key={c.value} value={c.value}>{c.label}</option>)}
-            </select>
-          </div>
+          <>
+            <div className="field"><label>Returned to (location sent)</label>
+              <input value={retLocation} onChange={e=>setRetLoc(e.target.value)}
+                placeholder={item?.storage_location || 'e.g. Warehouse — Shelf A1'} autoFocus />
+            </div>
+            <div className="field"><label>Condition on return</label>
+              <select value={retCondition} onChange={e=>setRetCond(e.target.value)}>
+                {CONDITIONS.map(c=><option key={c.value} value={c.value}>{c.label}</option>)}
+              </select>
+            </div>
+            <div style={{background:'#1a1a1a',border:'1px solid #2a2a2a',padding:'10px 12px',marginBottom:14}}>
+              <div style={{fontFamily:"'Azeret Mono',monospace",fontSize:10,color:'#7A7A7A',letterSpacing:'0.06em',textTransform:'uppercase',marginBottom:6}}>Return summary</div>
+              <div style={{fontFamily:"'Azeret Mono',monospace",fontSize:12,display:'flex',flexDirection:'column',gap:4}}>
+                <div><span style={{color:'#7A7A7A'}}>Date: </span>{new Date().toLocaleString()}</div>
+                <div><span style={{color:'#7A7A7A'}}>Sent to: </span>{retLocation||'—'}</div>
+                <div><span style={{color:'#7A7A7A'}}>Processed by: </span>{admin.name}</div>
+              </div>
+            </div>
+          </>
         )}
 
         <div className="field"><label>Photos</label>
@@ -674,10 +692,16 @@ function EventDetail({ event, admin, onBack }) {
                     </div>
                   </div>
                   <div className="fields">
-                    <span className="k">Location</span><span className="v">{ei.current_location||'—'}</span>
+                    {ei.status !== 'returned' && <><span className="k">Location</span><span className="v">{ei.current_location||'—'}</span></>}
                     <span className="k">Storage</span><span className="v">{it.storage_location||'—'}</span>
                     <span className="k">Assigned by</span><span className="v">{ei.assigned_by||'—'}</span>
-                    {ei.returned_at && <><span className="k">Returned by</span><span className="v">{ei.returned_by} · {fmtTime(ei.returned_at)}</span></>}
+                    {ei.returned_at && <>
+                      <span className="k">Returned by</span><span className="v">{ei.returned_by}</span>
+                      <span className="k">Return date</span><span className="v">{fmtTime(ei.returned_at)}</span>
+                      <span className="k">Sent to</span><span className="v">{ei.current_location||'—'}</span>
+                      <span className="k">Return cond.</span><span className="v">{CLABEL[ei.condition_on_return]||ei.condition_on_return||'—'}</span>
+                    </>}
+                    {!ei.returned_at && ei.current_location && <><span className="k">Location</span><span className="v">{ei.current_location}</span></>}
                     {ei.notes && <><span className="k">Notes</span><span className="v">{ei.notes}</span></>}
                   </div>
                   <div className="meta">Updated by {ei.updated_by||'—'} · {fmtTime(ei.updated_at)}</div>
