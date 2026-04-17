@@ -743,6 +743,7 @@ function EventDetail({ event, admin, onBack }) {
 // ---------- items tab (master list) ----------
 function ItemsTab({ admin }) {
   const [items, setItems]       = useState([]);
+  const [outIds, setOutIds]     = useState(new Set()); // item_ids currently checked out
   const [query, setQuery]       = useState('');
   const [catFilter, setCat]     = useState('all');
   const [condFilter, setCond]   = useState('all');
@@ -752,9 +753,12 @@ function ItemsTab({ admin }) {
 
   useEffect(() => {
     sb.from('items').select('*').order('name').then(({ data }) => setItems(data || []));
+    // load which items are currently out at any event
+    sb.from('event_items').select('item_id').eq('status', 'out')
+      .then(({ data }) => setOutIds(new Set((data||[]).map(r => r.item_id))));
   }, []);
 
-  // realtime
+  // realtime — items table
   useEffect(() => {
     const ch = sb.channel('items-master')
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'items' },
@@ -763,6 +767,17 @@ function ItemsTab({ admin }) {
         ({ new: it }) => setItems(prev => prev.map(p => p.id===it.id ? it : p)))
       .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'items' },
         ({ old }) => setItems(prev => prev.filter(p => p.id !== old.id)))
+      .subscribe();
+    return () => sb.removeChannel(ch);
+  }, []);
+
+  // realtime — keep out-status in sync when event_items change
+  useEffect(() => {
+    const ch = sb.channel('event-items-status')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'event_items' }, () => {
+        sb.from('event_items').select('item_id').eq('status', 'out')
+          .then(({ data }) => setOutIds(new Set((data||[]).map(r => r.item_id))));
+      })
       .subscribe();
     return () => sb.removeChannel(ch);
   }, []);
@@ -802,7 +817,12 @@ function ItemsTab({ admin }) {
             <div className="item clickable" key={it.id} onClick={()=>setViewing(it)}>
               <div className="row">
                 <div className="name">{it.name}</div>
-                <span className={`badge ${it.condition}`}>{CLABEL[it.condition]}</span>
+                <div style={{display:'flex',gap:5,alignItems:'center',flexShrink:0}}>
+                  <span className={`badge ${outIds.has(it.id) ? 'status-out' : 'status-stored'}`}>
+                    {outIds.has(it.id) ? 'Out' : 'Stored'}
+                  </span>
+                  <span className={`badge ${it.condition}`}>{CLABEL[it.condition]}</span>
+                </div>
               </div>
               <div className="fields">
                 <span className="k">Category</span><span className="v">{it.category||'—'}</span>

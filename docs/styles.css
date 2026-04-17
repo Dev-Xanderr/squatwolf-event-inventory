@@ -171,6 +171,7 @@ h1, h2, h3 {
 /* status badges */
 .badge.status-out      { background: #2b1a08; color: #d48a34; border: 1px solid #4a3018; }
 .badge.status-returned { background: #0d2b17; color: #5fcf7e; border: 1px solid #1a4a28; }
+.badge.status-stored   { background: #1a1a1a; color: #7A7A7A; border: 1px solid #2a2a2a; }
 
 .empty {
   text-align: center; padding: 48px 16px; color: #7A7A7A;
