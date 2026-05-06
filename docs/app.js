@@ -786,6 +786,200 @@ function UpdateEventItemModal({ eventItem, item, admin, onClose, onSaved }) {
   );
 }
 
+// ---------- bulk return modal ----------
+function BulkReturnModal({ event, eventItems, items, admin, onClose, onDone }) {
+  const outItems = useMemo(
+    () => eventItems.filter(ei => ei.status === 'out'),
+    [eventItems]
+  );
+
+  const [defaultLocation, setDefaultLocation] = useState('');
+  const [defaultCondition, setDefaultCondition] = useState('good');
+  const [processedBy, setProcessedBy] = useState(admin?.name || '');
+  // per-row condition overrides — keyed by event_item id; falls back to defaultCondition
+  const [overrides, setOverrides] = useState({});
+  // selection — start with all selected
+  const [selected, setSelected] = useState(() => new Set(outItems.map(ei => ei.id)));
+  const [confirming, setConfirming] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [progress, setProgress] = useState({ done: 0, total: 0 });
+  const [err, setErr] = useState('');
+
+  function toggle(id) {
+    setSelected(prev => {
+      const n = new Set(prev);
+      n.has(id) ? n.delete(id) : n.add(id);
+      return n;
+    });
+  }
+  function setRowCondition(id, val) {
+    setOverrides(prev => ({ ...prev, [id]: val }));
+  }
+
+  async function performReturn() {
+    setSaving(true); setErr('');
+    const ids = Array.from(selected);
+    setProgress({ done: 0, total: ids.length });
+    const now = new Date().toISOString();
+    try {
+      for (const eiId of ids) {
+        const ei = outItems.find(x => x.id === eiId);
+        if (!ei) continue;
+        const item = items[ei.item_id];
+        const cond = overrides[eiId] || defaultCondition;
+        const retLoc = (defaultLocation || item?.storage_location || '').trim();
+        const procBy = (processedBy || admin?.name || '').trim();
+
+        const payload = {
+          status: 'returned',
+          returned_by: procBy,
+          returned_at: now,
+          condition_on_return: cond,
+          current_location: retLoc,
+          condition: cond,
+          updated_at: now,
+          updated_by: admin?.name || procBy,
+        };
+        const { error: upErr } = await sb.from('event_items').update(payload).eq('id', eiId);
+        if (upErr) throw upErr;
+
+        // mirror condition onto master item
+        if (item) {
+          await sb.from('items').update({
+            condition: cond, updated_at: now, updated_by: admin?.name || procBy,
+          }).eq('id', item.id);
+        }
+
+        await sb.from('history').insert({
+          item_id: ei.item_id, event_item_id: eiId, event_id: event.id,
+          action: 'returned',
+          changes: { note: `Returned (bulk) on ${new Date(now).toLocaleString()}. Sent to: ${retLoc||'—'}. Processed by: ${procBy||'—'}. Condition: ${CLABEL[cond]||cond}` },
+          changed_by: admin?.name || procBy, changed_at: now,
+        });
+
+        setProgress(p => ({ done: p.done + 1, total: p.total }));
+      }
+      onDone();
+      onClose();
+    } catch (e) {
+      setErr(e.message || String(e));
+      setSaving(false);
+    }
+  }
+
+  if (outItems.length === 0) {
+    return (
+      <div className="backdrop" onClick={onClose}>
+        <div className="modal" onClick={e=>e.stopPropagation()} style={{maxWidth:420}}>
+          <h2>Return all</h2>
+          <div className="empty" style={{padding:'24px 16px'}}>No items currently out at this deployment.</div>
+          <div className="actions"><button className="btn ghost" onClick={onClose}>Close</button></div>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="backdrop" onClick={onClose}>
+      <div className="modal" onClick={e=>e.stopPropagation()}>
+        <h2>Return all from {event.name}</h2>
+
+        <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10,marginBottom:14}}>
+          <div className="field" style={{margin:0}}>
+            <label>Return location (default)</label>
+            <input value={defaultLocation} onChange={e=>setDefaultLocation(e.target.value)}
+              placeholder="e.g. Warehouse — Shelf A1" />
+          </div>
+          <div className="field" style={{margin:0}}>
+            <label>Default condition</label>
+            <select value={defaultCondition} onChange={e=>setDefaultCondition(e.target.value)}>
+              {CONDITIONS.map(c => <option key={c.value} value={c.value}>{c.label}</option>)}
+            </select>
+          </div>
+        </div>
+        <div className="field" style={{marginBottom:14}}>
+          <label>Processed by</label>
+          <input value={processedBy} onChange={e=>setProcessedBy(e.target.value)} placeholder="Who arranged transport" />
+        </div>
+
+        <div className="section-label" style={{marginTop:0}}>
+          {selected.size} of {outItems.length} selected
+          <span style={{float:'right'}}>
+            <button type="button" className="link-btn" onClick={()=>setSelected(new Set(outItems.map(ei=>ei.id)))}>Select all</button>
+            {' · '}
+            <button type="button" className="link-btn" onClick={()=>setSelected(new Set())}>None</button>
+          </span>
+        </div>
+
+        <div style={{maxHeight:340,overflowY:'auto',display:'flex',flexDirection:'column',gap:6}}>
+          {outItems.map(ei => {
+            const it = items[ei.item_id];
+            const isSel = selected.has(ei.id);
+            return (
+              <label key={ei.id} className={`check-row${isSel?' selected':''}`}>
+                <input type="checkbox" checked={isSel} onChange={()=>toggle(ei.id)}
+                  style={{accentColor:'#B93A32',width:16,height:16}} />
+                <div style={{flex:1,minWidth:0}}>
+                  <div style={{fontFamily:"'Barlow Condensed',sans-serif",fontSize:16,letterSpacing:'0.04em',textTransform:'uppercase',whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>
+                    {it?.name || '—'}
+                  </div>
+                  <div style={{fontFamily:"'Azeret Mono',monospace",fontSize:11,color:'#7A7A7A'}}>
+                    At: {ei.current_location || '—'}
+                  </div>
+                </div>
+                <select value={overrides[ei.id] || defaultCondition}
+                  onChange={e=>setRowCondition(ei.id, e.target.value)}
+                  onClick={e=>e.preventDefault()}
+                  style={{background:'#0e0e0e',border:'1px solid #2a2a2a',color:'#FAFAFA',padding:'4px 6px',fontSize:11,fontFamily:"'Azeret Mono',monospace"}}>
+                  {CONDITIONS.map(c => <option key={c.value} value={c.value}>{c.label}</option>)}
+                </select>
+              </label>
+            );
+          })}
+        </div>
+
+        {err && <div className="err" style={{marginTop:10}}>{err}</div>}
+
+        {saving && (
+          <div style={{marginTop:12,fontFamily:"'Azeret Mono',monospace",fontSize:12,color:'#d48a34'}}>
+            Returning {progress.done}/{progress.total}…
+          </div>
+        )}
+
+        <div className="actions" style={{marginTop:14}}>
+          <button type="button" className="btn ghost" onClick={onClose} disabled={saving}>Cancel</button>
+          <button type="button" className="btn primary" disabled={!selected.size || saving}
+            onClick={()=>setConfirming(true)}>
+            {saving ? 'Returning…' : `Return ${selected.size||''}`}
+          </button>
+        </div>
+
+        {confirming && (
+          <div className="backdrop" onClick={()=>!saving && setConfirming(false)} style={{zIndex:20}}>
+            <div className="modal" onClick={e=>e.stopPropagation()} style={{maxWidth:380}}>
+              <h2>Are you sure?</h2>
+              <div style={{fontFamily:"'Manrope',sans-serif",fontSize:14,color:'#EFEFEF',marginBottom:8}}>
+                Mark <strong>{selected.size}</strong> item{selected.size===1?'':'s'} as returned from{' '}
+                <strong>{event.name}</strong>?
+              </div>
+              <div style={{fontFamily:"'Azeret Mono',monospace",fontSize:11,color:'#7A7A7A',letterSpacing:'0.04em',textTransform:'uppercase',marginBottom:12}}>
+                Sent to: {(defaultLocation||'item storage location').trim() || '—'} · Processed by: {processedBy||'—'}
+              </div>
+              <div className="actions">
+                <button type="button" className="btn ghost" onClick={()=>setConfirming(false)} disabled={saving}>Cancel</button>
+                <button type="button" className="btn primary" disabled={saving}
+                  onClick={()=>{ setConfirming(false); performReturn(); }}>
+                  {saving ? 'Returning…' : 'Yes, return all'}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // ---------- event detail ----------
 function EventDetail({ event, admin, onBack }) {
   const [eventItems, setEventItems] = useState([]);
@@ -796,6 +990,7 @@ function EventDetail({ event, admin, onBack }) {
   const [filter, setFilter]         = useState('all');
   const [scanOpen, setScanOpen]     = useState(false);
   const [scanMsg, setScanMsg]       = useState('');
+  const [bulkOpen, setBulkOpen]     = useState(false);
 
   async function load() {
     const { data: eis } = await sb.from('event_items').select('*').eq('event_id', event.id).order('assigned_at');
@@ -872,6 +1067,9 @@ function EventDetail({ event, admin, onBack }) {
           <div className="ev-sub">{fmtDate(event.event_date)}{event.location ? ' · '+event.location : ''}</div>
         </div>
         <button className="btn sm" onClick={()=>setScanOpen(true)}>⊟ Scan</button>
+        {admin && outCount > 0 && (
+          <button className="btn sm" onClick={()=>setBulkOpen(true)} title="Return all out items">↩ Return all</button>
+        )}
         {admin && <button className="btn sm primary" onClick={()=>setAssignOpen(true)}>+ Assign</button>}
       </div>
       {scanMsg && (
@@ -973,6 +1171,10 @@ function EventDetail({ event, admin, onBack }) {
       {scanOpen && (
         <ScannerModal title="Scan to assign / update"
           onClose={()=>setScanOpen(false)} onScan={handleScan} />
+      )}
+      {bulkOpen && (
+        <BulkReturnModal event={event} eventItems={eventItems} items={items} admin={admin}
+          onClose={()=>setBulkOpen(false)} onDone={load} />
       )}
     </div>
   );
