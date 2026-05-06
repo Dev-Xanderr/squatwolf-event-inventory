@@ -200,6 +200,29 @@ h1, h2, h3 {
 .check-row.flagged { border-color: #4a3a10; }
 .check-row.flagged.selected { border-color: #B93A32; }
 
+/* ── CSV import preview table ────────────────────────────────────────────── */
+.csv-preview {
+  width: 100%; border-collapse: collapse;
+  font-family: 'Manrope', sans-serif; font-size: 12px;
+  color: #EFEFEF;
+}
+.csv-preview th {
+  text-align: left; background: #1a1a1a;
+  position: sticky; top: 0;
+  padding: 8px 10px; border-bottom: 1px solid #2a2a2a;
+  font-family: 'Azeret Mono', monospace;
+  font-size: 10px; color: #7A7A7A;
+  letter-spacing: 0.06em; text-transform: uppercase;
+}
+.csv-preview td {
+  padding: 6px 10px;
+  border-bottom: 1px solid #1f1f1f;
+  vertical-align: top;
+}
+.csv-preview tr.skip td { color: #888; background: #141414; }
+.csv-preview tr.skip td:first-child { color: #d48a34; }
+.csv-preview tr.add  td:first-child { color: #5fcf7e; }
+
 .empty {
   text-align: center; padding: 48px 16px; color: #7A7A7A;
   border: 1px dashed #2a2a2a;

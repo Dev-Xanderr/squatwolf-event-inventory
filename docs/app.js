@@ -65,6 +65,51 @@ function qrSvgString(text) {
   return qr.createSvgTag({ scalable: true, margin: 0 });
 }
 
+// ---------- CSV helpers ----------
+function toCsv(rows, headers) {
+  const esc = (v) => {
+    if (v == null) return '';
+    const s = String(v);
+    return /[",\n\r]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+  };
+  const out = [headers.join(',')];
+  for (const r of rows) out.push(headers.map((h) => esc(r[h])).join(','));
+  return out.join('\r\n');
+}
+function parseCsv(text) {
+  const rows = [];
+  let row = [], cell = '', q = false, i = 0;
+  const finishCell = () => { row.push(cell); cell = ''; };
+  const finishRow  = () => { rows.push(row); row = []; };
+  while (i < text.length) {
+    const c = text[i];
+    if (q) {
+      if (c === '"') {
+        if (text[i+1] === '"') { cell += '"'; i += 2; continue; }
+        q = false; i++; continue;
+      }
+      cell += c; i++; continue;
+    }
+    if (c === '"') { q = true; i++; continue; }
+    if (c === ',')  { finishCell(); i++; continue; }
+    if (c === '\r' && text[i+1] === '\n') { finishCell(); finishRow(); i += 2; continue; }
+    if (c === '\n' || c === '\r') { finishCell(); finishRow(); i++; continue; }
+    cell += c; i++;
+  }
+  if (cell.length > 0 || row.length > 0) { finishCell(); finishRow(); }
+  // strip trailing fully-empty rows
+  while (rows.length && rows[rows.length-1].every((s) => s === '')) rows.pop();
+  return rows;
+}
+function downloadFile(filename, content, mime = 'text/csv;charset=utf-8') {
+  const blob = new Blob(['﻿' + content], { type: mime }); // BOM for Excel
+  const url  = URL.createObjectURL(blob);
+  const a    = document.createElement('a');
+  a.href = url; a.download = filename;
+  document.body.appendChild(a); a.click();
+  setTimeout(() => { URL.revokeObjectURL(url); a.remove(); }, 0);
+}
+
 // ---------- lightbox ----------
 function Lightbox({ att, onClose }) {
   useEffect(() => {
@@ -279,6 +324,221 @@ function ScannerModal({ onClose, onScan, title }) {
         <div className="actions">
           <button type="button" className="btn ghost" onClick={onClose}>Cancel</button>
         </div>
+      </div>
+    </div>
+  );
+}
+
+// ---------- CSV import modal ----------
+function CsvImportModal({ admin, existingItems, onClose, onImported }) {
+  const [text, setText]         = useState('');
+  const [parsed, setParsed]     = useState(null);   // { headers, rows: [{raw, mapped, status, reason}] }
+  const [confirming, setConfirming] = useState(false);
+  const [saving, setSaving]     = useState(false);
+  const [progress, setProgress] = useState({ done: 0, total: 0 });
+  const [err, setErr]           = useState('');
+
+  const VALID_COND = new Set(['good','needs_cleaning','needs_repair','damaged','retired']);
+  const existingNames = new Map(); // lowercased name → existing item
+  existingItems.forEach((it) => existingNames.set(it.name.trim().toLowerCase(), it));
+
+  function loadFile(e) {
+    const f = e.target.files?.[0];
+    if (!f) return;
+    const r = new FileReader();
+    r.onload = () => setText(String(r.result || ''));
+    r.readAsText(f);
+  }
+
+  function preview() {
+    setErr('');
+    if (!text.trim()) { setErr('Paste or upload a CSV first.'); return; }
+    let rows;
+    try { rows = parseCsv(text); }
+    catch (e) { setErr('Could not parse CSV: ' + e.message); return; }
+    if (rows.length < 2) { setErr('CSV needs a header row and at least one data row.'); return; }
+
+    const headers = rows[0].map((h) => h.trim().toLowerCase().replace(/\s+/g, '_'));
+    const required = ['name'];
+    for (const r of required) {
+      if (!headers.includes(r)) { setErr(`Missing required column: ${r}`); return; }
+    }
+
+    const colIdx = (name) => headers.indexOf(name);
+    const idx = {
+      name:             colIdx('name'),
+      category:         colIdx('category'),
+      storage_location: colIdx('storage_location') >= 0 ? colIdx('storage_location') : colIdx('storage'),
+      condition:        colIdx('condition'),
+      notes:            colIdx('notes'),
+    };
+
+    const mappedRows = rows.slice(1).map((cells) => {
+      const get = (i) => i >= 0 ? (cells[i] || '').trim() : '';
+      const name = get(idx.name);
+
+      let category = get(idx.category);
+      if (category && !CATEGORIES.includes(category)) {
+        const found = CATEGORIES.find((c) => c.toLowerCase() === category.toLowerCase());
+        category = found || 'Other';
+      } else if (!category) category = 'Other';
+
+      let condition = (get(idx.condition) || 'good').toLowerCase().replace(/\s+/g, '_').replace('-', '_');
+      if (!VALID_COND.has(condition)) condition = 'good';
+
+      const mapped = {
+        name,
+        category,
+        storage_location: get(idx.storage_location),
+        condition,
+        notes: get(idx.notes),
+      };
+
+      let status = 'add', reason = '';
+      if (!name)                                            { status = 'skip'; reason = 'Missing name'; }
+      else if (existingNames.has(name.toLowerCase()))       { status = 'skip'; reason = 'Already exists'; }
+
+      return { raw: cells, mapped, status, reason };
+    });
+
+    setParsed({ headers, rows: mappedRows });
+  }
+
+  async function performImport() {
+    if (!parsed) return;
+    const toAdd = parsed.rows.filter((r) => r.status === 'add');
+    setSaving(true); setErr('');
+    setProgress({ done: 0, total: toAdd.length });
+    try {
+      const now = new Date().toISOString();
+      // chunk for safety on large imports
+      const CHUNK = 50;
+      let done = 0;
+      for (let i = 0; i < toAdd.length; i += CHUNK) {
+        const slice = toAdd.slice(i, i + CHUNK);
+        const payload = slice.map((r) => ({
+          ...r.mapped,
+          created_at: now, updated_at: now, updated_by: admin.name,
+        }));
+        const { data, error } = await sb.from('items').insert(payload).select('id, name, storage_location');
+        if (error) throw error;
+        // history per row
+        if (data && data.length) {
+          await sb.from('history').insert(data.map((it) => ({
+            item_id: it.id, action: 'item_created',
+            changes: { note: `Imported via CSV. Stored at: ${it.storage_location||'—'}` },
+            changed_by: admin.name, changed_at: now,
+          })));
+        }
+        done += slice.length;
+        setProgress({ done, total: toAdd.length });
+      }
+      onImported(); onClose();
+    } catch (e) {
+      setErr(e.message || String(e));
+      setSaving(false);
+    }
+  }
+
+  const addCount  = parsed?.rows.filter((r) => r.status === 'add').length || 0;
+  const skipCount = parsed?.rows.filter((r) => r.status === 'skip').length || 0;
+
+  return (
+    <div className="backdrop" onClick={onClose}>
+      <div className="modal" onClick={(e) => e.stopPropagation()} style={{maxWidth:760}}>
+        <h2>Import items from CSV</h2>
+
+        {!parsed && (
+          <>
+            <div style={{fontFamily:"'Azeret Mono',monospace",fontSize:11,color:'#7A7A7A',marginBottom:10,letterSpacing:'0.04em'}}>
+              Required column: <strong style={{color:'#FAFAFA'}}>name</strong>. Optional: category, storage_location, condition, notes.
+              Existing items (matched by name) are skipped — import only adds new rows.
+            </div>
+            <div className="field">
+              <label>Upload CSV file</label>
+              <input type="file" accept=".csv,text/csv,text/plain" onChange={loadFile} />
+            </div>
+            <div className="field">
+              <label>…or paste CSV here</label>
+              <textarea value={text} onChange={(e) => setText(e.target.value)} rows={8}
+                placeholder={'name,category,storage_location,condition,notes\nAudio mixer,Audio,Warehouse — Shelf A1,good,Channel 16'} />
+            </div>
+            {err && <div className="err">{err}</div>}
+            <div className="actions">
+              <button type="button" className="btn ghost" onClick={onClose}>Cancel</button>
+              <button type="button" className="btn primary" onClick={preview} disabled={!text.trim()}>Preview</button>
+            </div>
+          </>
+        )}
+
+        {parsed && (
+          <>
+            <div style={{fontFamily:"'Azeret Mono',monospace",fontSize:12,color:'#7A7A7A',marginBottom:10,letterSpacing:'0.04em',textTransform:'uppercase'}}>
+              <span style={{color:'#5fcf7e'}}>{addCount} to add</span>
+              {skipCount > 0 && <> · <span style={{color:'#d48a34'}}>{skipCount} skipped</span></>}
+            </div>
+            <div style={{maxHeight:340, overflowY:'auto', border:'1px solid #2a2a2a'}}>
+              <table className="csv-preview">
+                <thead>
+                  <tr>
+                    <th style={{width:'8%'}}>Status</th>
+                    <th>Name</th>
+                    <th>Category</th>
+                    <th>Storage</th>
+                    <th>Condition</th>
+                    <th>Reason</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {parsed.rows.map((r, i) => (
+                    <tr key={i} className={r.status === 'skip' ? 'skip' : 'add'}>
+                      <td>{r.status === 'add' ? 'Add' : 'Skip'}</td>
+                      <td>{r.mapped.name || <em style={{color:'#888'}}>—</em>}</td>
+                      <td>{r.mapped.category}</td>
+                      <td>{r.mapped.storage_location || ''}</td>
+                      <td>{CLABEL[r.mapped.condition]||r.mapped.condition}</td>
+                      <td style={{color:'#d48a34'}}>{r.reason}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            {saving && (
+              <div style={{marginTop:10,fontFamily:"'Azeret Mono',monospace",fontSize:12,color:'#d48a34'}}>
+                Importing {progress.done}/{progress.total}…
+              </div>
+            )}
+            {err && <div className="err" style={{marginTop:8}}>{err}</div>}
+
+            <div className="actions">
+              <button type="button" className="btn ghost" onClick={() => { setParsed(null); setErr(''); }} disabled={saving}>Back</button>
+              <button type="button" className="btn primary" disabled={!addCount || saving}
+                onClick={() => setConfirming(true)}>
+                {saving ? 'Importing…' : `Import ${addCount} item${addCount===1?'':'s'}`}
+              </button>
+            </div>
+
+            {confirming && (
+              <div className="backdrop" onClick={() => !saving && setConfirming(false)} style={{zIndex:20}}>
+                <div className="modal" onClick={(e) => e.stopPropagation()} style={{maxWidth:380}}>
+                  <h2>Are you sure?</h2>
+                  <div style={{fontFamily:"'Manrope',sans-serif",fontSize:14,color:'#EFEFEF',marginBottom:14}}>
+                    Add <strong>{addCount}</strong> item{addCount===1?'':'s'} to the master inventory?
+                    {skipCount > 0 && <><br /><span style={{color:'#7A7A7A',fontFamily:"'Azeret Mono',monospace",fontSize:12}}>{skipCount} row{skipCount===1?'':'s'} will be skipped.</span></>}
+                  </div>
+                  <div className="actions">
+                    <button type="button" className="btn ghost" onClick={() => setConfirming(false)} disabled={saving}>Cancel</button>
+                    <button type="button" className="btn primary" disabled={saving}
+                      onClick={() => { setConfirming(false); performImport(); }}>
+                      {saving ? 'Importing…' : 'Yes, import'}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+          </>
+        )}
       </div>
     </div>
   );
@@ -1367,6 +1627,14 @@ function ItemsTab({ admin, openItemId, onOpened }) {
   const [labelsOpen, setLabels] = useState(false);
   const [scanOpen, setScanOpen] = useState(false);
   const [scanErr, setScanErr]   = useState('');
+  const [importOpen, setImport] = useState(false);
+
+  function exportCsv() {
+    const headers = ['name','category','storage_location','condition','notes','updated_at','updated_by'];
+    const csv = toCsv(items, headers);
+    const stamp = new Date().toISOString().slice(0,10);
+    downloadFile(`squatwolf-inventory-${stamp}.csv`, csv);
+  }
 
   // open by id (used by deep-link or scan from topbar)
   useEffect(() => {
@@ -1449,6 +1717,12 @@ function ItemsTab({ admin, openItemId, onOpened }) {
         {admin && items.length > 0 && (
           <button className="btn" onClick={()=>setLabels(true)} title="Print labels">⎙ Labels</button>
         )}
+        {items.length > 0 && (
+          <button className="btn" onClick={exportCsv} title="Download CSV">↓ Export</button>
+        )}
+        {admin && (
+          <button className="btn" onClick={()=>setImport(true)} title="Bulk add from CSV">↑ Import</button>
+        )}
       </div>
       {scanErr && <div className="err" style={{marginBottom:8}}>{scanErr}</div>}
 
@@ -1510,6 +1784,15 @@ function ItemsTab({ admin, openItemId, onOpened }) {
             const it = items.find(x => x.id === id);
             if (it) setViewing(it);
             else setScanErr('Scanned QR doesn’t match any item in inventory.');
+          }}
+        />
+      )}
+      {importOpen && (
+        <CsvImportModal admin={admin} existingItems={items}
+          onClose={()=>setImport(false)}
+          onImported={() => {
+            // realtime sub will refresh the list, but force a reload for snappy feedback
+            sb.from('items').select('*').order('name').then(({ data }) => setItems(data || []));
           }}
         />
       )}
