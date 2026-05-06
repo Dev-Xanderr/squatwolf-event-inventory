@@ -1336,6 +1336,206 @@ function ItemsTab({ admin, openItemId, onOpened }) {
   );
 }
 
+// ---------- dashboard tab ----------
+const OVERDUE_DAYS = 7;
+
+function DashboardTab({ admin, onGoTo }) {
+  const [items, setItems]   = useState(null);
+  const [outRows, setOut]   = useState([]);  // event_items rows with status='out' + joined event
+  const [allEis, setAllEis] = useState([]);  // every event_item (used for "never used" calc)
+  const [recent, setRecent] = useState([]);
+  const [viewing, setViewing] = useState(null);
+
+  async function load() {
+    const [itemsRes, outRes, allRes, hist] = await Promise.all([
+      sb.from('items').select('*').order('name'),
+      sb.from('event_items').select('*, events(id, name, event_date)').eq('status','out'),
+      sb.from('event_items').select('item_id'),
+      sb.from('history').select('*').order('changed_at', { ascending: false }).limit(8),
+    ]);
+    setItems(itemsRes.data || []);
+    setOut(outRes.data || []);
+    setAllEis(allRes.data || []);
+    setRecent(hist.data || []);
+  }
+  useEffect(() => { load(); }, []);
+
+  // realtime — anything changes, reload
+  useEffect(() => {
+    const ch = sb.channel('dashboard')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'items' }, load)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'event_items' }, load)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'history' }, load)
+      .subscribe();
+    return () => sb.removeChannel(ch);
+  }, []);
+
+  if (items === null) return <div className="container"><div className="empty">Loading…</div></div>;
+
+  const itemMap = {};
+  items.forEach(it => itemMap[it.id] = it);
+
+  // Currently out — group by deployment
+  const outByEvent = {};
+  outRows.forEach(r => {
+    const eid = r.events?.id || r.event_id;
+    if (!outByEvent[eid]) outByEvent[eid] = { event: r.events, rows: [] };
+    outByEvent[eid].rows.push(r);
+  });
+  const outDeployments = Object.values(outByEvent);
+
+  // Overdue — out and event_date older than OVERDUE_DAYS
+  const cutoff = Date.now() - OVERDUE_DAYS * 24 * 3600 * 1000;
+  const overdue = outRows.filter(r => {
+    const d = r.events?.event_date ? new Date(r.events.event_date).getTime() : null;
+    return d !== null && d < cutoff;
+  });
+
+  // Needs attention — items in damaged / needs_repair / needs_cleaning
+  const needsAttention = items.filter(it =>
+    it.condition === 'damaged' || it.condition === 'needs_repair' || it.condition === 'needs_cleaning'
+  );
+
+  // Items never assigned — id not in any event_item row
+  const everUsed = new Set(allEis.map(e => e.item_id));
+  const neverUsed = items.filter(it => !everUsed.has(it.id));
+
+  const totalItems   = items.length;
+  const totalOut     = outRows.length;
+  const totalDeploys = new Set(allEis.map(e => e.event_id)).size; // distinct deployments that ever had items
+
+  return (
+    <div className="container">
+      {/* top KPI row */}
+      <div className="kpi-row">
+        <div className="stat-box"><div className="stat-value">{totalItems}</div><div className="stat-label">Total items</div></div>
+        <div className="stat-box"><div className="stat-value" style={{color:'#d48a34'}}>{totalOut}</div><div className="stat-label">Currently out</div></div>
+        <div className="stat-box"><div className="stat-value" style={{color:'#e87070'}}>{overdue.length}</div><div className="stat-label">Overdue</div></div>
+        <div className="stat-box"><div className="stat-value" style={{color:'#d4a534'}}>{needsAttention.length}</div><div className="stat-label">Needs attention</div></div>
+      </div>
+
+      {/* Overdue */}
+      <DashSection
+        title={`Overdue (> ${OVERDUE_DAYS} days)`}
+        emptyText="Nothing overdue. 🎯"
+        emoji=""
+      >
+        {overdue.length > 0 && overdue.map(r => {
+          const it = itemMap[r.item_id];
+          const days = r.events?.event_date
+            ? Math.floor((Date.now() - new Date(r.events.event_date).getTime())/(24*3600*1000))
+            : null;
+          return (
+            <div className="dash-row" key={r.id} onClick={()=>it && setViewing(it)}>
+              <div style={{flex:1,minWidth:0}}>
+                <div className="dash-row-name">{it?.name || '(missing item)'}</div>
+                <div className="dash-row-sub">Out at {r.events?.name||'—'} · {days!=null?`${days}d past event`:'—'}</div>
+              </div>
+              <span className="badge status-out">Out</span>
+            </div>
+          );
+        })}
+      </DashSection>
+
+      {/* Needs attention */}
+      <DashSection
+        title="Needs attention"
+        emptyText="All items in good condition."
+      >
+        {needsAttention.map(it => (
+          <div className="dash-row" key={it.id} onClick={()=>setViewing(it)}>
+            <div style={{flex:1,minWidth:0}}>
+              <div className="dash-row-name">{it.name}</div>
+              <div className="dash-row-sub">{it.category||'—'} · {it.storage_location||'No storage set'}</div>
+            </div>
+            <span className={`badge ${it.condition}`}>{CLABEL[it.condition]}</span>
+          </div>
+        ))}
+      </DashSection>
+
+      {/* Currently out — by deployment */}
+      <DashSection
+        title="Currently out"
+        emptyText="Nothing checked out."
+      >
+        {outDeployments.map(({event, rows}) => (
+          <div className="dash-group" key={event?.id || Math.random()}>
+            <div className="dash-group-head">
+              <span className="dash-group-name">{event?.name || '(unknown deployment)'}</span>
+              <span className="dash-group-count">{rows.length}</span>
+            </div>
+            {rows.map(r => {
+              const it = itemMap[r.item_id];
+              return (
+                <div className="dash-row" key={r.id} onClick={()=>it && setViewing(it)}>
+                  <div style={{flex:1,minWidth:0}}>
+                    <div className="dash-row-name">{it?.name || '(missing item)'}</div>
+                    <div className="dash-row-sub">At: {r.current_location||'—'}</div>
+                  </div>
+                  <span className={`badge ${r.condition||'good'}`}>{CLABEL[r.condition]||r.condition||'—'}</span>
+                </div>
+              );
+            })}
+          </div>
+        ))}
+      </DashSection>
+
+      {/* Never used */}
+      {neverUsed.length > 0 && (
+        <DashSection title="Never assigned" emptyText="">
+          {neverUsed.slice(0, 12).map(it => (
+            <div className="dash-row" key={it.id} onClick={()=>setViewing(it)}>
+              <div style={{flex:1,minWidth:0}}>
+                <div className="dash-row-name">{it.name}</div>
+                <div className="dash-row-sub">{it.category||'—'} · {it.storage_location||'No storage set'}</div>
+              </div>
+              <span className={`badge ${it.condition}`}>{CLABEL[it.condition]}</span>
+            </div>
+          ))}
+          {neverUsed.length > 12 && (
+            <div className="dash-row-sub" style={{padding:'4px 12px'}}>
+              + {neverUsed.length - 12} more
+            </div>
+          )}
+        </DashSection>
+      )}
+
+      {/* Recent activity */}
+      <DashSection title="Recent activity" emptyText="No activity yet.">
+        {recent.map(ev => (
+          <div className="dash-row" key={ev.id} onClick={()=>{
+            const it = itemMap[ev.item_id]; if (it) setViewing(it);
+          }}>
+            <div style={{flex:1,minWidth:0}}>
+              <div className="dash-row-name" style={{fontSize:14}}>
+                {actionLabel(ev.action)}{itemMap[ev.item_id] ? ` · ${itemMap[ev.item_id].name}` : ''}
+              </div>
+              <div className="dash-row-sub">{ev.changed_by} · {fmtTime(ev.changed_at)}</div>
+            </div>
+          </div>
+        ))}
+      </DashSection>
+
+      {viewing && (
+        <ItemDetailModal item={viewing} admin={admin} onClose={()=>setViewing(null)}
+          onEdit={()=>setViewing(null)} />
+      )}
+    </div>
+  );
+}
+
+function DashSection({ title, emptyText, children }) {
+  const arr = React.Children.toArray(children).filter(Boolean);
+  return (
+    <div className="dash-section">
+      <div className="dash-section-head">{title}</div>
+      {arr.length === 0
+        ? <div className="dash-empty">{emptyText}</div>
+        : <div className="dash-list">{arr}</div>}
+    </div>
+  );
+}
+
 // ---------- events tab ----------
 function EventsTab({ admin }) {
   const [events, setEvents]     = useState([]);
@@ -1390,7 +1590,7 @@ function App() {
   const [admin, setAdmin]       = useState(() => {
     try { return JSON.parse(localStorage.getItem('eit:admin')) || null; } catch { return null; }
   });
-  const [tab, setTab]           = useState('items'); // 'items' | 'events'
+  const [tab, setTab]           = useState('dashboard'); // 'dashboard' | 'items' | 'events'
   const [loginOpen, setLoginOpen] = useState(false);
   const [openItemId, setOpenItemId] = useState(null);
 
@@ -1443,15 +1643,16 @@ function App() {
 
       {/* tabs */}
       <div className="tabs">
-        {[['items','Items'],['events','Deployments']].map(([key,label]) => (
+        {[['dashboard','Dashboard'],['items','Items'],['events','Deployments']].map(([key,label]) => (
           <button key={key} onClick={()=>setTab(key)} className={tab===key?'active':''}>
             {label}
           </button>
         ))}
       </div>
 
-      {tab === 'items'  && <ItemsTab  admin={admin} openItemId={openItemId} onOpened={()=>setOpenItemId(null)} />}
-      {tab === 'events' && <EventsTab admin={admin} />}
+      {tab === 'dashboard' && <DashboardTab admin={admin} />}
+      {tab === 'items'     && <ItemsTab  admin={admin} openItemId={openItemId} onOpened={()=>setOpenItemId(null)} />}
+      {tab === 'events'    && <EventsTab admin={admin} />}
 
       {loginOpen && <AdminLoginModal onLogin={handleLogin} onClose={()=>setLoginOpen(false)} />}
     </div>

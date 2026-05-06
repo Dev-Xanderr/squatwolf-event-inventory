@@ -179,6 +179,70 @@ h1, h2, h3 {
   font-family: 'Azeret Mono', monospace; font-size: 13px;
 }
 
+/* ── Dashboard ───────────────────────────────────────────────────────────── */
+.kpi-row {
+  display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px;
+  margin-bottom: 14px;
+}
+@media (max-width: 600px) {
+  .kpi-row { grid-template-columns: repeat(2, 1fr); }
+}
+.dash-section { margin-bottom: 18px; }
+.dash-section-head {
+  font-family: 'Azeret Mono', monospace;
+  font-size: 11px; color: #7A7A7A;
+  letter-spacing: 0.1em; text-transform: uppercase;
+  padding: 0 0 6px 0;
+  border-bottom: 1px solid #2a2a2a;
+  margin-bottom: 8px;
+  display: flex; justify-content: space-between; align-items: center;
+}
+.dash-list { display: flex; flex-direction: column; gap: 6px; }
+.dash-empty {
+  font-family: 'Azeret Mono', monospace; font-size: 12px;
+  color: #7A7A7A; padding: 8px 0;
+}
+.dash-row {
+  display: flex; align-items: center; gap: 10px;
+  background: #1a1a1a; border: 1px solid #2a2a2a;
+  padding: 10px 12px;
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s;
+}
+.dash-row:hover { border-color: #3a3a3a; background: #1f1f1f; }
+.dash-row-name {
+  font-family: 'Barlow Condensed', sans-serif;
+  font-size: 16px; font-weight: 500;
+  letter-spacing: 0.04em; text-transform: uppercase;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.dash-row-sub {
+  font-family: 'Azeret Mono', monospace;
+  font-size: 11px; color: #7A7A7A;
+  margin-top: 2px;
+}
+.dash-group {
+  background: #141414; border: 1px solid #2a2a2a;
+  margin-bottom: 6px; padding: 8px;
+  display: flex; flex-direction: column; gap: 4px;
+}
+.dash-group-head {
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 0 4px 6px 4px;
+  border-bottom: 1px solid #2a2a2a;
+  margin-bottom: 4px;
+}
+.dash-group-name {
+  font-family: 'Barlow Condensed', sans-serif;
+  font-size: 14px; font-weight: 500;
+  letter-spacing: 0.06em; text-transform: uppercase;
+}
+.dash-group-count {
+  font-family: 'Azeret Mono', monospace;
+  font-size: 10px; color: #d48a34;
+  letter-spacing: 0.06em;
+}
+
 /* ── Stat boxes ───────────────────────────────────────────────────────────── */
 .stat-box {
   flex: 1; background: #1a1a1a; border: 1px solid #2a2a2a;
