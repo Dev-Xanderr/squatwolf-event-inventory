@@ -13,28 +13,66 @@ DO $$ BEGIN
         CHECK (condition_on_return IS NULL OR condition_on_return IN ('good','needs_cleaning','needs_repair','damaged','retired'));
 END $$;
 
--- Clear old policies
-DROP POLICY IF EXISTS "public read events" ON events;
-DROP POLICY IF EXISTS "public read items" ON items;
-DROP POLICY IF EXISTS "public read history" ON history;
+-- ── Row Level Security (idempotent) ─────────────────────────────────────────
+ALTER TABLE items       ENABLE ROW LEVEL SECURITY;
+ALTER TABLE events      ENABLE ROW LEVEL SECURITY;
+ALTER TABLE event_items ENABLE ROW LEVEL SECURITY;
+ALTER TABLE history     ENABLE ROW LEVEL SECURITY;
+ALTER TABLE attachments ENABLE ROW LEVEL SECURITY;
+
+-- ── Drop everything we might recreate (legacy + current names) ───────────────
+DROP POLICY IF EXISTS "public read events"      ON events;
+DROP POLICY IF EXISTS "public read items"       ON items;
+DROP POLICY IF EXISTS "public read history"     ON history;
 DROP POLICY IF EXISTS "public read attachments" ON attachments;
 
--- Public read (anyone with the link)
+DROP POLICY IF EXISTS "read events"      ON events;
+DROP POLICY IF EXISTS "read items"       ON items;
+DROP POLICY IF EXISTS "read event_items" ON event_items;
+DROP POLICY IF EXISTS "read history"     ON history;
+DROP POLICY IF EXISTS "read attachments" ON attachments;
+
+DROP POLICY IF EXISTS "admin insert items"       ON items;
+DROP POLICY IF EXISTS "admin update items"       ON items;
+DROP POLICY IF EXISTS "admin delete items"       ON items;
+
+DROP POLICY IF EXISTS "admin insert events"      ON events;
+DROP POLICY IF EXISTS "admin update events"      ON events;
+DROP POLICY IF EXISTS "admin delete events"      ON events;
+
+DROP POLICY IF EXISTS "admin insert event_items" ON event_items;
+DROP POLICY IF EXISTS "admin update event_items" ON event_items;
+DROP POLICY IF EXISTS "admin delete event_items" ON event_items;
+
+DROP POLICY IF EXISTS "admin insert history"     ON history;
+DROP POLICY IF EXISTS "admin insert attachments" ON attachments;
+DROP POLICY IF EXISTS "admin delete attachments" ON attachments;
+
+-- ── Public read (anyone with the link) ──────────────────────────────────────
 CREATE POLICY "read events"      ON events      FOR SELECT USING (true);
 CREATE POLICY "read items"       ON items       FOR SELECT USING (true);
+CREATE POLICY "read event_items" ON event_items FOR SELECT USING (true);
 CREATE POLICY "read history"     ON history     FOR SELECT USING (true);
 CREATE POLICY "read attachments" ON attachments FOR SELECT USING (true);
 
--- Admin write (logged-in admins only)
-CREATE POLICY "admin insert events"      ON events      FOR INSERT TO authenticated WITH CHECK (true);
+-- ── Admin write (logged-in admins only) ─────────────────────────────────────
 CREATE POLICY "admin insert items"       ON items       FOR INSERT TO authenticated WITH CHECK (true);
 CREATE POLICY "admin update items"       ON items       FOR UPDATE TO authenticated USING (true) WITH CHECK (true);
 CREATE POLICY "admin delete items"       ON items       FOR DELETE TO authenticated USING (true);
+
+CREATE POLICY "admin insert events"      ON events      FOR INSERT TO authenticated WITH CHECK (true);
+CREATE POLICY "admin update events"      ON events      FOR UPDATE TO authenticated USING (true) WITH CHECK (true);
+CREATE POLICY "admin delete events"      ON events      FOR DELETE TO authenticated USING (true);
+
+CREATE POLICY "admin insert event_items" ON event_items FOR INSERT TO authenticated WITH CHECK (true);
+CREATE POLICY "admin update event_items" ON event_items FOR UPDATE TO authenticated USING (true) WITH CHECK (true);
+CREATE POLICY "admin delete event_items" ON event_items FOR DELETE TO authenticated USING (true);
+
 CREATE POLICY "admin insert history"     ON history     FOR INSERT TO authenticated WITH CHECK (true);
 CREATE POLICY "admin insert attachments" ON attachments FOR INSERT TO authenticated WITH CHECK (true);
 CREATE POLICY "admin delete attachments" ON attachments FOR DELETE TO authenticated USING (true);
 
--- Realtime (safe — skips if already added)
+-- ── Realtime publication (safe — skips if already added) ────────────────────
 DO $$ BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_publication_tables WHERE pubname='supabase_realtime' AND tablename='events') THEN
     ALTER PUBLICATION supabase_realtime ADD TABLE events;
@@ -42,15 +80,15 @@ DO $$ BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_publication_tables WHERE pubname='supabase_realtime' AND tablename='items') THEN
     ALTER PUBLICATION supabase_realtime ADD TABLE items;
   END IF;
-  IF NOT EXISTS (SELECT 1 FROM pg_publication_tables WHERE pubname='supabase_realtime' AND tablename='attachments') THEN
-    ALTER PUBLICATION supabase_realtime ADD TABLE attachments;
-  END IF;
   IF NOT EXISTS (SELECT 1 FROM pg_publication_tables WHERE pubname='supabase_realtime' AND tablename='event_items') THEN
     ALTER PUBLICATION supabase_realtime ADD TABLE event_items;
   END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_publication_tables WHERE pubname='supabase_realtime' AND tablename='attachments') THEN
+    ALTER PUBLICATION supabase_realtime ADD TABLE attachments;
+  END IF;
 END $$;
 
--- Storage policies
+-- ── Storage bucket policies ─────────────────────────────────────────────────
 DROP POLICY IF EXISTS "Public read storage" ON storage.objects;
 DROP POLICY IF EXISTS "Auth upload storage" ON storage.objects;
 DROP POLICY IF EXISTS "Auth delete storage" ON storage.objects;
