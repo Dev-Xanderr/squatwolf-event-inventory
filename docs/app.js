@@ -43,6 +43,24 @@ function diffObj(before, after, fields) {
   return d;
 }
 
+// ---------- QR helpers ----------
+const UUID_RE = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i;
+function itemUrl(id) {
+  // encode the deep-link form so any QR scanner opens this app on the item
+  return `${location.origin}${location.pathname}?item=${id}`;
+}
+function parseScanned(text) {
+  // accept raw UUID, our deep-link URL, or anything containing a UUID
+  const m = String(text||'').match(UUID_RE);
+  return m ? m[0] : null;
+}
+function qrSvgString(text) {
+  const qr = window.qrcode(0, 'M');
+  qr.addData(text);
+  qr.make();
+  return qr.createSvgTag({ scalable: true, margin: 0 });
+}
+
 // ---------- lightbox ----------
 function Lightbox({ att, onClose }) {
   useEffect(() => {
@@ -178,6 +196,125 @@ function HistoryList({ itemId, eventItemId }) {
   );
 }
 
+// ---------- QR scanner modal ----------
+function ScannerModal({ onClose, onScan, title }) {
+  const videoRef  = useRef(null);
+  const canvasRef = useRef(null);
+  const streamRef = useRef(null);
+  const rafRef    = useRef(null);
+  const lockRef   = useRef(false);
+  const [err, setErr] = useState('');
+
+  useEffect(() => {
+    let cancelled = false;
+    async function start() {
+      if (!window.jsQR) { setErr('Scanner library not loaded — refresh the page.'); return; }
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: { ideal: 'environment' } },
+          audio: false,
+        });
+        if (cancelled) { stream.getTracks().forEach(t => t.stop()); return; }
+        streamRef.current = stream;
+        const v = videoRef.current;
+        if (!v) return;
+        v.srcObject = stream;
+        v.setAttribute('playsinline', 'true');
+        await v.play().catch(() => {});
+        const c = canvasRef.current;
+        const ctx = c.getContext('2d', { willReadFrequently: true });
+        const tick = () => {
+          if (cancelled || lockRef.current) return;
+          if (v.readyState === 4 && v.videoWidth) {
+            c.width  = v.videoWidth;
+            c.height = v.videoHeight;
+            ctx.drawImage(v, 0, 0, c.width, c.height);
+            const img = ctx.getImageData(0, 0, c.width, c.height);
+            const code = window.jsQR(img.data, c.width, c.height, { inversionAttempts: 'dontInvert' });
+            if (code && code.data) {
+              const id = parseScanned(code.data);
+              if (id) {
+                lockRef.current = true;
+                onScan(id);
+                return;
+              }
+            }
+          }
+          rafRef.current = requestAnimationFrame(tick);
+        };
+        rafRef.current = requestAnimationFrame(tick);
+      } catch (e) {
+        setErr(e.name === 'NotAllowedError'
+          ? 'Camera permission denied. Allow camera access and try again.'
+          : 'Camera unavailable: ' + (e.message || e.name));
+      }
+    }
+    start();
+    return () => {
+      cancelled = true;
+      if (rafRef.current) cancelAnimationFrame(rafRef.current);
+      streamRef.current?.getTracks().forEach(t => t.stop());
+    };
+  }, []);
+
+  return (
+    <div className="backdrop" onClick={onClose}>
+      <div className="modal scanner-modal" onClick={e => e.stopPropagation()}>
+        <h2>{title || 'Scan QR'}</h2>
+        <div className="scanner-frame">
+          <video ref={videoRef} muted playsInline />
+          <canvas ref={canvasRef} style={{display:'none'}} />
+          <div className="scanner-reticle" />
+        </div>
+        {err
+          ? <div className="err" style={{marginTop:10}}>{err}</div>
+          : <div style={{fontFamily:"'Azeret Mono',monospace",fontSize:11,color:'#7A7A7A',marginTop:10,letterSpacing:'0.04em',textTransform:'uppercase'}}>
+              Point camera at item label
+            </div>
+        }
+        <div className="actions">
+          <button type="button" className="btn ghost" onClick={onClose}>Cancel</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ---------- printable label sheet ----------
+function LabelSheet({ items, onClose }) {
+  const sheetRef = useRef(null);
+  function doPrint() {
+    window.print();
+  }
+  return (
+    <div className="backdrop label-backdrop" onClick={onClose}>
+      <div className="modal label-modal" onClick={e => e.stopPropagation()}>
+        <h2>Print labels</h2>
+        <div style={{fontFamily:"'Azeret Mono',monospace",fontSize:11,color:'#7A7A7A',marginBottom:12,letterSpacing:'0.04em',textTransform:'uppercase'}}>
+          {items.length} label{items.length===1?'':'s'} · use browser print → save as PDF or send to a label printer
+        </div>
+        <div className="label-sheet" ref={sheetRef}>
+          {items.map(it => (
+            <div className="label" key={it.id}>
+              <div className="label-qr"
+                dangerouslySetInnerHTML={{ __html: qrSvgString(itemUrl(it.id)) }} />
+              <div className="label-meta">
+                <div className="label-name">{it.name}</div>
+                <div className="label-sub">{it.category||'—'}</div>
+                <div className="label-id">{String(it.id).slice(0,8)}</div>
+              </div>
+            </div>
+          ))}
+        </div>
+        <div className="actions no-print">
+          <button type="button" className="btn ghost" onClick={onClose}>Close</button>
+          <button type="button" className="btn primary" onClick={doPrint}>Print</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ---------- admin login ----------
 function AdminLoginModal({ onLogin, onClose }) {
   const [password, setPassword] = useState('');
@@ -295,6 +432,7 @@ function ItemFormModal({ initial, admin, onClose, onSaved }) {
 function ItemDetailModal({ item, admin, onClose, onEdit }) {
   const [history, setHistory] = useState(null);
   const [eventItems, setEventItems] = useState([]);
+  const [showQr, setShowQr] = useState(false);
 
   useEffect(() => {
     sb.from('history').select('*').eq('item_id', item.id).order('changed_at', { ascending: false })
@@ -342,7 +480,18 @@ function ItemDetailModal({ item, admin, onClose, onEdit }) {
         <div className="section-label">Full history</div>
         <HistoryList itemId={item.id} />
 
+        {showQr && (
+          <div style={{background:'#1a1a1a',border:'1px solid #2a2a2a',padding:14,marginTop:12,display:'flex',flexDirection:'column',alignItems:'center',gap:8}}>
+            <div className="qr-block" style={{width:200,height:200,background:'#fff',padding:8}}
+              dangerouslySetInnerHTML={{ __html: qrSvgString(itemUrl(item.id)) }} />
+            <div style={{fontFamily:"'Azeret Mono',monospace",fontSize:10,color:'#7A7A7A',letterSpacing:'0.06em',textTransform:'uppercase'}}>
+              {String(item.id).slice(0,8)}
+            </div>
+          </div>
+        )}
+
         <div className="actions" style={{marginTop:14}}>
+          <button className="btn" onClick={()=>setShowQr(s => !s)}>{showQr ? 'Hide QR' : 'Show QR'}</button>
           {admin && <button className="btn primary" onClick={onEdit}>Edit item</button>}
           <button className="btn ghost" onClick={onClose}>Close</button>
         </div>
@@ -645,6 +794,8 @@ function EventDetail({ event, admin, onBack }) {
   const [updating, setUpdating]     = useState(null);
   const [query, setQuery]           = useState('');
   const [filter, setFilter]         = useState('all');
+  const [scanOpen, setScanOpen]     = useState(false);
+  const [scanMsg, setScanMsg]       = useState('');
 
   async function load() {
     const { data: eis } = await sb.from('event_items').select('*').eq('event_id', event.id).order('assigned_at');
@@ -660,6 +811,44 @@ function EventDetail({ event, admin, onBack }) {
   useEffect(() => { load(); }, [event.id]);
 
   const existingItemIds = new Set(eventItems.map(ei => ei.item_id));
+
+  async function handleScan(itemId) {
+    setScanOpen(false); setScanMsg('');
+    // already on this deployment? open update
+    const existing = eventItems.find(ei => ei.item_id === itemId);
+    if (existing) {
+      setUpdating(existing);
+      return;
+    }
+    // fetch master item to verify it exists
+    const { data: master } = await sb.from('items').select('*').eq('id', itemId).maybeSingle();
+    if (!master) { setScanMsg('Scanned QR doesn’t match any item in inventory.'); return; }
+    // check it's not out at another deployment
+    const { data: outAt } = await sb.from('event_items')
+      .select('event_id, events(name)').eq('item_id', itemId).eq('status', 'out').limit(1);
+    const elsewhere = (outAt||[]).find(r => r.event_id !== event.id);
+    if (elsewhere) {
+      setScanMsg(`"${master.name}" is currently out at: ${elsewhere.events?.name||'another deployment'}.`);
+      return;
+    }
+    if (!admin) { setScanMsg('Log in as admin to assign items.'); return; }
+    // assign
+    const now = new Date().toISOString();
+    const { data: ei } = await sb.from('event_items').insert({
+      event_id: event.id, item_id: itemId, status: 'out',
+      assigned_by: admin.name, assigned_at: now, updated_at: now, updated_by: admin.name,
+    }).select().single();
+    if (ei) {
+      await sb.from('history').insert({
+        item_id: itemId, event_item_id: ei.id, event_id: event.id,
+        action: 'assigned',
+        changes: { note: `Assigned to deployment via scan: ${event.name}` },
+        changed_by: admin.name, changed_at: now,
+      });
+      setScanMsg(`Assigned: ${master.name}`);
+      load();
+    }
+  }
 
   const filtered = eventItems.filter(ei => {
     const it = items[ei.item_id];
@@ -682,8 +871,15 @@ function EventDetail({ event, admin, onBack }) {
           <div className="ev-name">{event.name}</div>
           <div className="ev-sub">{fmtDate(event.event_date)}{event.location ? ' · '+event.location : ''}</div>
         </div>
+        <button className="btn sm" onClick={()=>setScanOpen(true)}>⊟ Scan</button>
         {admin && <button className="btn sm primary" onClick={()=>setAssignOpen(true)}>+ Assign</button>}
       </div>
+      {scanMsg && (
+        <div style={{margin:'8px 14px 0',padding:'8px 12px',background:'#1a1a1a',border:'1px solid #2a2a2a',
+                     fontFamily:"'Azeret Mono',monospace",fontSize:12,color:'#d48a34'}}>
+          {scanMsg}
+        </div>
+      )}
 
 
       <div className="container">
@@ -774,12 +970,16 @@ function EventDetail({ event, admin, onBack }) {
           onSaved={(data) => { load(); setUpdating(null); }}
         />
       )}
+      {scanOpen && (
+        <ScannerModal title="Scan to assign / update"
+          onClose={()=>setScanOpen(false)} onScan={handleScan} />
+      )}
     </div>
   );
 }
 
 // ---------- items tab (master list) ----------
-function ItemsTab({ admin }) {
+function ItemsTab({ admin, openItemId, onOpened }) {
   const [items, setItems]       = useState([]);
   const [outMap, setOutMap]     = useState({}); // item_id → event name for checked-out items
   const [query, setQuery]       = useState('');
@@ -788,6 +988,19 @@ function ItemsTab({ admin }) {
   const [addOpen, setAddOpen]   = useState(false);
   const [viewing, setViewing]   = useState(null);
   const [editing, setEditing]   = useState(null);
+  const [labelsOpen, setLabels] = useState(false);
+  const [scanOpen, setScanOpen] = useState(false);
+  const [scanErr, setScanErr]   = useState('');
+
+  // open by id (used by deep-link or scan from topbar)
+  useEffect(() => {
+    if (!openItemId || !items.length) return;
+    const it = items.find(x => x.id === openItemId);
+    if (it) {
+      setViewing(it);
+      onOpened?.();
+    }
+  }, [openItemId, items]);
 
   useEffect(() => {
     sb.from('items').select('*').order('name').then(({ data }) => setItems(data || []));
@@ -849,7 +1062,12 @@ function ItemsTab({ admin }) {
           {CONDITIONS.map(c=><option key={c.value} value={c.value}>{c.label}</option>)}
         </select>
         {admin && <button className="btn primary" onClick={()=>setAddOpen(true)}>+ Add item</button>}
+        <button className="btn" onClick={()=>setScanOpen(true)} title="Scan QR">⊟ Scan</button>
+        {admin && items.length > 0 && (
+          <button className="btn" onClick={()=>setLabels(true)} title="Print labels">⎙ Labels</button>
+        )}
       </div>
+      {scanErr && <div className="err" style={{marginBottom:8}}>{scanErr}</div>}
 
       {filtered.length === 0 ? (
         <div className="empty">
@@ -897,6 +1115,20 @@ function ItemsTab({ admin }) {
             else setItems(prev => prev.filter(p => p.id !== editing.id));
             setEditing(null);
           }} />
+      )}
+      {labelsOpen && (
+        <LabelSheet items={items} onClose={()=>setLabels(false)} />
+      )}
+      {scanOpen && (
+        <ScannerModal title="Scan item QR"
+          onClose={()=>setScanOpen(false)}
+          onScan={(id) => {
+            setScanOpen(false); setScanErr('');
+            const it = items.find(x => x.id === id);
+            if (it) setViewing(it);
+            else setScanErr('Scanned QR doesn’t match any item in inventory.');
+          }}
+        />
       )}
     </div>
   );
@@ -958,6 +1190,21 @@ function App() {
   });
   const [tab, setTab]           = useState('items'); // 'items' | 'events'
   const [loginOpen, setLoginOpen] = useState(false);
+  const [openItemId, setOpenItemId] = useState(null);
+
+  // deep-link: ?item=<uuid> opens the item on the items tab
+  useEffect(() => {
+    const params = new URLSearchParams(location.search);
+    const id = params.get('item');
+    if (id && parseScanned(id)) {
+      setTab('items');
+      setOpenItemId(parseScanned(id));
+      // strip the param so a refresh doesn't keep popping the modal
+      const url = new URL(location.href);
+      url.searchParams.delete('item');
+      window.history.replaceState({}, '', url.toString());
+    }
+  }, []);
 
   useEffect(() => {
     sb.auth.getSession().then(({ data: { session } }) => {
@@ -1001,7 +1248,7 @@ function App() {
         ))}
       </div>
 
-      {tab === 'items'  && <ItemsTab  admin={admin} />}
+      {tab === 'items'  && <ItemsTab  admin={admin} openItemId={openItemId} onOpened={()=>setOpenItemId(null)} />}
       {tab === 'events' && <EventsTab admin={admin} />}
 
       {loginOpen && <AdminLoginModal onLogin={handleLogin} onClose={()=>setLoginOpen(false)} />}

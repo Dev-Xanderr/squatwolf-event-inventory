@@ -378,6 +378,82 @@ h1, h2, h3 {
   border-bottom: 1px solid #2a2a2a;
 }
 
+/* ── Scanner ─────────────────────────────────────────────────────────────── */
+.scanner-modal { max-width: 480px; }
+.scanner-frame {
+  position: relative; width: 100%; aspect-ratio: 1 / 1;
+  background: #000; border: 1px solid #2a2a2a; overflow: hidden;
+}
+.scanner-frame video {
+  width: 100%; height: 100%; object-fit: cover; display: block;
+}
+.scanner-reticle {
+  position: absolute; inset: 12%; pointer-events: none;
+  border: 2px solid rgba(185, 58, 50, 0.85);
+  box-shadow: 0 0 0 9999px rgba(0,0,0,0.35);
+}
+
+/* ── Label sheet (printable) ────────────────────────────────────────────── */
+.label-modal { max-width: 760px; }
+.label-sheet {
+  display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px;
+  background: #0a0a0a; border: 1px solid #2a2a2a; padding: 10px;
+  max-height: 60vh; overflow-y: auto;
+}
+.label {
+  background: #fff; color: #000;
+  display: flex; gap: 10px; padding: 10px; align-items: center;
+  border: 1px solid #ddd;
+}
+.label-qr { width: 76px; height: 76px; flex-shrink: 0; }
+.label-qr svg { width: 100% !important; height: 100% !important; display: block; }
+.label-meta { flex: 1; min-width: 0; }
+.label-name {
+  font-family: 'Barlow Condensed', sans-serif;
+  font-size: 14px; font-weight: 700;
+  letter-spacing: 0.04em; text-transform: uppercase;
+  color: #000;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.label-sub {
+  font-family: 'Azeret Mono', monospace;
+  font-size: 9px; color: #444; letter-spacing: 0.04em;
+  text-transform: uppercase; margin-top: 2px;
+}
+.label-id {
+  font-family: 'Azeret Mono', monospace;
+  font-size: 9px; color: #888; letter-spacing: 0.04em;
+  margin-top: 4px;
+}
+@media (max-width: 640px) {
+  .label-sheet { grid-template-columns: repeat(2, 1fr); }
+}
+
+/* QR block in detail modal */
+.qr-block svg { width: 100% !important; height: 100% !important; display: block; }
+
+/* ── Print rules ─────────────────────────────────────────────────────────── */
+@media print {
+  body { background: #fff; color: #000; }
+  /* hide everything except the label modal contents */
+  body * { visibility: hidden !important; }
+  .label-modal, .label-modal * { visibility: visible !important; }
+  .label-modal {
+    position: absolute; left: 0; top: 0;
+    width: 100%; max-width: none; max-height: none;
+    background: #fff; border: none; padding: 0; overflow: visible;
+  }
+  .label-modal h2, .label-modal .no-print, .label-modal > div:nth-child(2) { display: none !important; }
+  .label-sheet {
+    background: #fff; border: none; padding: 0;
+    max-height: none; overflow: visible;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 4mm;
+  }
+  .label { break-inside: avoid; page-break-inside: avoid; border: 1px solid #ccc; }
+  .backdrop { background: #fff !important; position: static !important; }
+}
+
 /* ── Back bar (inside EventDetail) ──────────────────────────────────────── */
 .back-bar {
   position: sticky; top: 0; z-index: 5;
