@@ -16,7 +16,7 @@ const CONDITIONS = [
   { value: 'needs_repair',   label: 'Needs Repair' },
   { value: 'damaged',        label: 'Damaged' },
 ];
-const CLABEL = { good: 'Good', needs_cleaning: 'Needs Cleaning', needs_repair: 'Needs Repair', damaged: 'Damaged' };
+const CLABEL = { good: 'Good', needs_cleaning: 'Needs Cleaning', needs_repair: 'Needs Repair', damaged: 'Damaged', retired: 'Retired' };
 const CATEGORIES = ['Audio', 'Signage', 'Furniture', 'Equipment', 'Comms', 'Other'];
 
 function fmtDate(d) {
@@ -34,7 +34,8 @@ function fmtTime(iso) {
 function actionLabel(a) {
   return { item_created:'Item added', item_updated:'Item updated', item_deleted:'Item removed',
     assigned:'Assigned to deployment', location_updated:'Location updated', condition_changed:'Condition changed',
-    notes_updated:'Notes updated', returned:'Returned', photo_added:'Photo added', photo_removed:'Photo removed' }[a] || a;
+    notes_updated:'Notes updated', returned:'Returned', photo_added:'Photo added', photo_removed:'Photo removed',
+    repaired:'Marked repaired', retired:'Retired' }[a] || a;
 }
 function isVideo(m) { return (m||'').startsWith('video/'); }
 function diffObj(before, after, fields) {
@@ -392,10 +393,66 @@ function ItemFormModal({ initial, admin, onClose, onSaved }) {
     onSaved(null); onClose();
   }
 
+  async function setConditionAndLog(newCond, action, noteText) {
+    setSaving(true); setErr('');
+    const now = new Date().toISOString();
+    try {
+      const { data, error } = await sb.from('items').update({
+        condition: newCond, updated_at: now, updated_by: admin.name,
+      }).eq('id', initial.id).select().single();
+      if (error) throw error;
+      await sb.from('history').insert({
+        item_id: initial.id, action,
+        changes: { note: noteText, from: initial.condition, to: newCond },
+        changed_by: admin.name, changed_at: now,
+      });
+      onSaved(data);
+      onClose();
+    } catch(e) { setErr(e.message); setSaving(false); }
+  }
+
+  async function markRepaired() {
+    if (!window.confirm(`Mark "${initial.name}" as repaired and back in service?`)) return;
+    await setConditionAndLog('good', 'repaired', `Marked repaired (was ${CLABEL[initial.condition]||initial.condition})`);
+  }
+  async function retire() {
+    if (!window.confirm(`Retire "${initial.name}"? It will be hidden from new deployments and you'll need to reactivate it to use again.`)) return;
+    await setConditionAndLog('retired', 'retired', `Retired (was ${CLABEL[initial.condition]||initial.condition})`);
+  }
+  async function reactivate() {
+    if (!window.confirm(`Bring "${initial.name}" back into service?`)) return;
+    await setConditionAndLog('good', 'repaired', 'Reactivated from retirement');
+  }
+
+  const isRetired      = initial?.condition === 'retired';
+  const needsAttention = ['needs_cleaning','needs_repair','damaged'].includes(initial?.condition);
+
   return (
     <div className="backdrop" onClick={onClose}>
       <form className="modal" onClick={e=>e.stopPropagation()} onSubmit={save}>
         <h2>{isEdit ? 'Edit item' : 'Add item to inventory'}</h2>
+
+        {isEdit && isRetired && (
+          <div className="status-banner retired-banner">
+            <div>
+              <div className="status-banner-title">Retired</div>
+              <div className="status-banner-sub">Hidden from new deployments. Reactivate to use again.</div>
+            </div>
+            <button type="button" className="btn sm primary" onClick={reactivate} disabled={saving}>Reactivate</button>
+          </div>
+        )}
+        {isEdit && needsAttention && (
+          <div className="status-banner attention-banner">
+            <div>
+              <div className="status-banner-title">{CLABEL[initial.condition]}</div>
+              <div className="status-banner-sub">Mark repaired when fixed, or retire if it's beyond saving.</div>
+            </div>
+            <div style={{display:'flex',gap:6}}>
+              <button type="button" className="btn sm" onClick={markRepaired} disabled={saving}>Mark repaired</button>
+            </div>
+          </div>
+        )}
+
         <div className="field"><label>Name</label>
           <input value={name} onChange={e=>setName(e.target.value)} autoFocus />
         </div>
@@ -423,6 +480,9 @@ function ItemFormModal({ initial, admin, onClose, onSaved }) {
         <div className="err">{err}</div>
         <div className="actions">
           {isEdit && <button type="button" className="btn danger" onClick={del}>Delete</button>}
+          {isEdit && !isRetired && (
+            <button type="button" className="btn" onClick={retire} disabled={saving} title="Take this item out of service">Retire</button>
+          )}
           <button type="button" className="btn ghost" onClick={onClose}>Cancel</button>
           <button type="submit" className="btn primary" disabled={saving}>{saving?'Saving…':(isEdit?'Save changes':'Add item')}</button>
         </div>
@@ -568,12 +628,15 @@ function AssignItemsModal({ event, admin, existingItemIds, onClose, onAssigned }
   }, []);
 
   // split items into available and unavailable for clear display
+  // retired items are hidden from assignment entirely
   const matching = items.filter(it =>
     !existingItemIds.has(it.id) &&
+    it.condition !== 'retired' &&
     it.name.toLowerCase().includes(query.toLowerCase())
   );
   const available   = matching.filter(it => !activeOut[it.id]);
   const unavailable = matching.filter(it =>  activeOut[it.id]);
+  const NEEDS_FLAG = new Set(['needs_cleaning','needs_repair','damaged']);
 
   function toggle(id) {
     setSelected(prev => {
@@ -616,16 +679,24 @@ function AssignItemsModal({ event, admin, existingItemIds, onClose, onAssigned }
           )}
 
           {/* selectable items */}
-          {available.map(it => (
-            <label key={it.id} className={`check-row${selected.has(it.id)?' selected':''}`}>
-              <input type="checkbox" checked={selected.has(it.id)} onChange={()=>toggle(it.id)} style={{accentColor:'#B93A32',width:16,height:16}} />
-              <div style={{flex:1}}>
-                <div style={{fontFamily:"'Barlow Condensed',sans-serif",fontSize:17,letterSpacing:'0.04em',textTransform:'uppercase'}}>{it.name}</div>
-                <div style={{fontFamily:"'Azeret Mono',monospace",fontSize:11,color:'#7A7A7A'}}>{it.category} · {it.storage_location||'No storage set'}</div>
-              </div>
-              <span className={`badge ${it.condition}`}>{CLABEL[it.condition]}</span>
-            </label>
-          ))}
+          {available.map(it => {
+            const flag = NEEDS_FLAG.has(it.condition);
+            return (
+              <label key={it.id} className={`check-row${selected.has(it.id)?' selected':''}${flag?' flagged':''}`}>
+                <input type="checkbox" checked={selected.has(it.id)} onChange={()=>toggle(it.id)} style={{accentColor:'#B93A32',width:16,height:16}} />
+                <div style={{flex:1,minWidth:0}}>
+                  <div style={{fontFamily:"'Barlow Condensed',sans-serif",fontSize:17,letterSpacing:'0.04em',textTransform:'uppercase'}}>{it.name}</div>
+                  <div style={{fontFamily:"'Azeret Mono',monospace",fontSize:11,color:'#7A7A7A'}}>{it.category} · {it.storage_location||'No storage set'}</div>
+                  {flag && (
+                    <div style={{fontFamily:"'Azeret Mono',monospace",fontSize:10,color:'#d4a534',letterSpacing:'0.06em',textTransform:'uppercase',marginTop:3}}>
+                      ⚠ Item needs attention before deployment
+                    </div>
+                  )}
+                </div>
+                <span className={`badge ${it.condition}`}>{CLABEL[it.condition]}</span>
+              </label>
+            );
+          })}
 
           {/* unavailable — out at another deployment */}
           {unavailable.length > 0 && (
@@ -1348,7 +1419,13 @@ function ItemsTab({ admin, openItemId, onOpened }) {
 
   const filtered = items.filter(it => {
     if (catFilter !== 'all' && it.category !== catFilter) return false;
-    if (condFilter !== 'all' && it.condition !== condFilter) return false;
+    // Hide retired items unless the user explicitly filters for them.
+    if (condFilter === 'retired') {
+      if (it.condition !== 'retired') return false;
+    } else {
+      if (it.condition === 'retired') return false;
+      if (condFilter !== 'all' && it.condition !== condFilter) return false;
+    }
     if (query && !it.name.toLowerCase().includes(query.toLowerCase()) &&
         !(it.storage_location||'').toLowerCase().includes(query.toLowerCase())) return false;
     return true;
@@ -1365,6 +1442,7 @@ function ItemsTab({ admin, openItemId, onOpened }) {
         <select className="filter" value={condFilter} onChange={e=>setCond(e.target.value)}>
           <option value="all">All conditions</option>
           {CONDITIONS.map(c=><option key={c.value} value={c.value}>{c.label}</option>)}
+          <option value="retired">Retired (hidden)</option>
         </select>
         {admin && <button className="btn primary" onClick={()=>setAddOpen(true)}>+ Add item</button>}
         <button className="btn" onClick={()=>setScanOpen(true)} title="Scan QR">⊟ Scan</button>

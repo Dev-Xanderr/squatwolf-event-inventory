@@ -1,3 +1,18 @@
+-- ── Condition CHECK constraints (idempotent) ────────────────────────────────
+-- Keeps the allowed condition values aligned with the app:
+--   good · needs_cleaning · needs_repair · damaged · retired
+DO $$ BEGIN
+  ALTER TABLE items       DROP CONSTRAINT IF EXISTS items_condition_check;
+  ALTER TABLE items       ADD  CONSTRAINT items_condition_check
+        CHECK (condition IN ('good','needs_cleaning','needs_repair','damaged','retired'));
+  ALTER TABLE event_items DROP CONSTRAINT IF EXISTS event_items_condition_check;
+  ALTER TABLE event_items ADD  CONSTRAINT event_items_condition_check
+        CHECK (condition IN ('good','needs_cleaning','needs_repair','damaged','retired'));
+  ALTER TABLE event_items DROP CONSTRAINT IF EXISTS event_items_condition_on_return_check;
+  ALTER TABLE event_items ADD  CONSTRAINT event_items_condition_on_return_check
+        CHECK (condition_on_return IS NULL OR condition_on_return IN ('good','needs_cleaning','needs_repair','damaged','retired'));
+END $$;
+
 -- Clear old policies
 DROP POLICY IF EXISTS "public read events" ON events;
 DROP POLICY IF EXISTS "public read items" ON items;
