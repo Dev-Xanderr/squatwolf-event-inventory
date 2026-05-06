@@ -3,3 +3,5 @@ node_modules/
 uploads/
 inventory.json
 inventory.json.tmp
+.claude/
+package-lock.json
