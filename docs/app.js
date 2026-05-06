@@ -49,6 +49,9 @@ function itemUrl(id) {
   // encode the deep-link form so any QR scanner opens this app on the item
   return `${location.origin}${location.pathname}?item=${id}`;
 }
+function eventUrl(id) {
+  return `${location.origin}${location.pathname}?event=${id}`;
+}
 function parseScanned(text) {
   // accept raw UUID, our deep-link URL, or anything containing a UUID
   const m = String(text||'').match(UUID_RE);
@@ -786,6 +789,98 @@ function UpdateEventItemModal({ eventItem, item, admin, onClose, onSaved }) {
   );
 }
 
+// ---------- deployment manifest (printable) ----------
+function ManifestView({ event, eventItems, items, onClose }) {
+  function doPrint() { window.print(); }
+  const out      = eventItems.filter(ei => ei.status === 'out');
+  const returned = eventItems.filter(ei => ei.status === 'returned');
+  const generatedAt = new Date();
+
+  return (
+    <div className="backdrop label-backdrop" onClick={onClose}>
+      <div className="modal manifest-modal" onClick={e => e.stopPropagation()}>
+        <div className="actions no-print" style={{justifyContent:'space-between',marginTop:0,marginBottom:14}}>
+          <h2 style={{margin:0}}>Deployment Manifest</h2>
+          <div style={{display:'flex',gap:8}}>
+            <button type="button" className="btn ghost" onClick={onClose}>Close</button>
+            <button type="button" className="btn primary" onClick={doPrint}>Print / Save PDF</button>
+          </div>
+        </div>
+
+        <div className="manifest-paper">
+          <div className="manifest-head">
+            <div style={{flex:1, minWidth:0}}>
+              <div className="manifest-brand">SQUATWOLF</div>
+              <div className="manifest-title">{event.name}</div>
+              <div className="manifest-sub">
+                {fmtDate(event.event_date)}
+                {event.location ? ' · ' + event.location : ''}
+              </div>
+              <div className="manifest-meta">
+                Generated {generatedAt.toLocaleString()}
+              </div>
+            </div>
+            <div className="manifest-qr"
+              dangerouslySetInnerHTML={{ __html: qrSvgString(eventUrl(event.id)) }} />
+          </div>
+
+          <div className="manifest-stats">
+            <div><span className="manifest-stat-num">{eventItems.length}</span> Total</div>
+            <div><span className="manifest-stat-num" style={{color:'#d48a34'}}>{out.length}</span> Out</div>
+            <div><span className="manifest-stat-num" style={{color:'#5fcf7e'}}>{returned.length}</span> Returned</div>
+          </div>
+
+          {eventItems.length === 0 ? (
+            <div className="empty" style={{marginTop:14}}>No items on this deployment.</div>
+          ) : (
+            <table className="manifest-table">
+              <thead>
+                <tr>
+                  <th style={{width:'4%'}}>#</th>
+                  <th>Item</th>
+                  <th>Category</th>
+                  <th>Condition</th>
+                  <th>Status</th>
+                  <th>Location</th>
+                  <th>Notes</th>
+                </tr>
+              </thead>
+              <tbody>
+                {eventItems.map((ei, i) => {
+                  const it = items[ei.item_id];
+                  return (
+                    <tr key={ei.id}>
+                      <td>{i+1}</td>
+                      <td className="m-item-name">{it?.name || '(missing)'}</td>
+                      <td>{it?.category || '—'}</td>
+                      <td>{CLABEL[ei.condition] || ei.condition || '—'}</td>
+                      <td>{ei.status === 'returned' ? 'Returned' : 'Out'}</td>
+                      <td>
+                        {ei.status === 'returned'
+                          ? `Sent to ${ei.current_location||'—'}`
+                          : (ei.current_location || '—')}
+                      </td>
+                      <td>
+                        {ei.status === 'returned'
+                          ? `By ${ei.returned_by||'—'} · ${fmtTime(ei.returned_at)}${ei.condition_on_return && ei.condition_on_return!==ei.condition ? ' · '+(CLABEL[ei.condition_on_return]||ei.condition_on_return) : ''}`
+                          : (ei.notes || '')}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          )}
+
+          <div className="manifest-foot">
+            Live link: {eventUrl(event.id)}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ---------- bulk return modal ----------
 function BulkReturnModal({ event, eventItems, items, admin, onClose, onDone }) {
   const outItems = useMemo(
@@ -991,6 +1086,7 @@ function EventDetail({ event, admin, onBack }) {
   const [scanOpen, setScanOpen]     = useState(false);
   const [scanMsg, setScanMsg]       = useState('');
   const [bulkOpen, setBulkOpen]     = useState(false);
+  const [manifestOpen, setManifest] = useState(false);
 
   async function load() {
     const { data: eis } = await sb.from('event_items').select('*').eq('event_id', event.id).order('assigned_at');
@@ -1067,6 +1163,9 @@ function EventDetail({ event, admin, onBack }) {
           <div className="ev-sub">{fmtDate(event.event_date)}{event.location ? ' · '+event.location : ''}</div>
         </div>
         <button className="btn sm" onClick={()=>setScanOpen(true)}>⊟ Scan</button>
+        {eventItems.length > 0 && (
+          <button className="btn sm" onClick={()=>setManifest(true)} title="Printable manifest">⎙ Manifest</button>
+        )}
         {admin && outCount > 0 && (
           <button className="btn sm" onClick={()=>setBulkOpen(true)} title="Return all out items">↩ Return all</button>
         )}
@@ -1175,6 +1274,10 @@ function EventDetail({ event, admin, onBack }) {
       {bulkOpen && (
         <BulkReturnModal event={event} eventItems={eventItems} items={items} admin={admin}
           onClose={()=>setBulkOpen(false)} onDone={load} />
+      )}
+      {manifestOpen && (
+        <ManifestView event={event} eventItems={eventItems} items={items}
+          onClose={()=>setManifest(false)} />
       )}
     </div>
   );
@@ -1537,7 +1640,7 @@ function DashSection({ title, emptyText, children }) {
 }
 
 // ---------- events tab ----------
-function EventsTab({ admin }) {
+function EventsTab({ admin, openEventId, onOpened }) {
   const [events, setEvents]     = useState([]);
   const [selected, setSelected] = useState(null);
   const [newOpen, setNewOpen]   = useState(false);
@@ -1546,6 +1649,16 @@ function EventsTab({ admin }) {
     sb.from('events').select('*').order('event_date', { ascending: false, nullsFirst: true })
       .then(({ data }) => setEvents(data || []));
   }, []);
+
+  // open by id (deep-link)
+  useEffect(() => {
+    if (!openEventId || !events.length) return;
+    const ev = events.find(e => e.id === openEventId);
+    if (ev) {
+      setSelected(ev);
+      onOpened?.();
+    }
+  }, [openEventId, events]);
 
   if (selected) {
     return <EventDetail event={selected} admin={admin} onBack={()=>setSelected(null)} />;
@@ -1592,18 +1705,26 @@ function App() {
   });
   const [tab, setTab]           = useState('dashboard'); // 'dashboard' | 'items' | 'events'
   const [loginOpen, setLoginOpen] = useState(false);
-  const [openItemId, setOpenItemId] = useState(null);
+  const [openItemId, setOpenItemId]   = useState(null);
+  const [openEventId, setOpenEventId] = useState(null);
 
-  // deep-link: ?item=<uuid> opens the item on the items tab
+  // deep-links: ?item=<uuid> or ?event=<uuid>
   useEffect(() => {
     const params = new URLSearchParams(location.search);
-    const id = params.get('item');
-    if (id && parseScanned(id)) {
+    const itemId  = params.get('item');
+    const eventId = params.get('event');
+    const url = new URL(location.href);
+    if (itemId && parseScanned(itemId)) {
       setTab('items');
-      setOpenItemId(parseScanned(id));
-      // strip the param so a refresh doesn't keep popping the modal
-      const url = new URL(location.href);
+      setOpenItemId(parseScanned(itemId));
       url.searchParams.delete('item');
+    }
+    if (eventId && parseScanned(eventId)) {
+      setTab('events');
+      setOpenEventId(parseScanned(eventId));
+      url.searchParams.delete('event');
+    }
+    if (itemId || eventId) {
       window.history.replaceState({}, '', url.toString());
     }
   }, []);
@@ -1651,8 +1772,8 @@ function App() {
       </div>
 
       {tab === 'dashboard' && <DashboardTab admin={admin} />}
-      {tab === 'items'     && <ItemsTab  admin={admin} openItemId={openItemId} onOpened={()=>setOpenItemId(null)} />}
-      {tab === 'events'    && <EventsTab admin={admin} />}
+      {tab === 'items'     && <ItemsTab  admin={admin} openItemId={openItemId}  onOpened={()=>setOpenItemId(null)} />}
+      {tab === 'events'    && <EventsTab admin={admin} openEventId={openEventId} onOpened={()=>setOpenEventId(null)} />}
 
       {loginOpen && <AdminLoginModal onLogin={handleLogin} onClose={()=>setLoginOpen(false)} />}
     </div>

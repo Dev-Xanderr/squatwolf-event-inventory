@@ -496,18 +496,105 @@ h1, h2, h3 {
 /* QR block in detail modal */
 .qr-block svg { width: 100% !important; height: 100% !important; display: block; }
 
+/* ── Deployment manifest (printable) ─────────────────────────────────────── */
+.manifest-modal { max-width: 820px; }
+.manifest-paper {
+  background: #fff; color: #111;
+  padding: 24px;
+  border: 1px solid #2a2a2a;
+}
+.manifest-head {
+  display: flex; gap: 16px; align-items: flex-start;
+  border-bottom: 2px solid #B93A32;
+  padding-bottom: 14px; margin-bottom: 14px;
+}
+.manifest-brand {
+  font-family: 'Barlow Condensed', 'Arial Black', sans-serif;
+  font-size: 12px; font-weight: 700;
+  letter-spacing: 0.18em; text-transform: uppercase;
+  color: #B93A32;
+}
+.manifest-title {
+  font-family: 'Barlow Condensed', sans-serif;
+  font-size: 28px; font-weight: 700;
+  letter-spacing: 0.04em; text-transform: uppercase;
+  color: #111;
+  margin-top: 4px;
+  line-height: 1.1;
+}
+.manifest-sub {
+  font-family: 'Azeret Mono', monospace;
+  font-size: 12px; color: #444;
+  margin-top: 4px;
+}
+.manifest-meta {
+  font-family: 'Azeret Mono', monospace;
+  font-size: 10px; color: #888;
+  margin-top: 4px;
+}
+.manifest-qr {
+  width: 110px; height: 110px; flex-shrink: 0;
+  background: #fff; padding: 4px; border: 1px solid #ddd;
+}
+.manifest-qr svg { width: 100% !important; height: 100% !important; display: block; }
+.manifest-stats {
+  display: flex; gap: 18px;
+  font-family: 'Azeret Mono', monospace;
+  font-size: 12px; color: #444;
+  letter-spacing: 0.04em; text-transform: uppercase;
+  margin-bottom: 14px;
+}
+.manifest-stat-num {
+  font-family: 'Barlow Condensed', sans-serif;
+  font-size: 22px; font-weight: 700;
+  color: #111;
+  margin-right: 6px;
+}
+.manifest-table {
+  width: 100%; border-collapse: collapse;
+  font-family: 'Manrope', sans-serif; font-size: 12px;
+  color: #111;
+}
+.manifest-table th {
+  text-align: left; background: #f4f4f4;
+  padding: 8px 10px; border-bottom: 1px solid #ccc;
+  font-family: 'Azeret Mono', monospace;
+  font-size: 10px; color: #444;
+  letter-spacing: 0.06em; text-transform: uppercase;
+}
+.manifest-table td {
+  padding: 8px 10px; border-bottom: 1px solid #eee;
+  vertical-align: top;
+}
+.manifest-table .m-item-name {
+  font-family: 'Barlow Condensed', sans-serif;
+  font-weight: 700;
+  letter-spacing: 0.04em; text-transform: uppercase;
+}
+.manifest-foot {
+  margin-top: 14px;
+  font-family: 'Azeret Mono', monospace;
+  font-size: 10px; color: #888;
+  border-top: 1px solid #eee; padding-top: 8px;
+}
+
 /* ── Print rules ─────────────────────────────────────────────────────────── */
 @media print {
   body { background: #fff; color: #000; }
-  /* hide everything except the label modal contents */
+  /* hide everything except the print-target modals */
   body * { visibility: hidden !important; }
-  .label-modal, .label-modal * { visibility: visible !important; }
-  .label-modal {
+  .label-modal, .label-modal *,
+  .manifest-modal, .manifest-modal * { visibility: visible !important; }
+
+  .label-modal, .manifest-modal {
     position: absolute; left: 0; top: 0;
     width: 100%; max-width: none; max-height: none;
     background: #fff; border: none; padding: 0; overflow: visible;
   }
-  .label-modal h2, .label-modal .no-print, .label-modal > div:nth-child(2) { display: none !important; }
+  .no-print { display: none !important; }
+
+  /* labels */
+  .label-modal h2, .label-modal > div:nth-child(2) { display: none !important; }
   .label-sheet {
     background: #fff; border: none; padding: 0;
     max-height: none; overflow: visible;
@@ -515,6 +602,12 @@ h1, h2, h3 {
     gap: 4mm;
   }
   .label { break-inside: avoid; page-break-inside: avoid; border: 1px solid #ccc; }
+
+  /* manifest */
+  .manifest-paper { border: none; padding: 12mm; }
+  .manifest-table { font-size: 11px; }
+  .manifest-table tr { break-inside: avoid; page-break-inside: avoid; }
+
   .backdrop { background: #fff !important; position: static !important; }
 }
 
