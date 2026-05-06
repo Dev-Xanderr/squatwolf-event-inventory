@@ -679,3 +679,116 @@ h1, h2, h3 {
   font-family: 'Azeret Mono', monospace;
   font-size: 10px; color: #7A7A7A;
 }
+
+/* ──────────────────────────────────────────────────────────────────────────
+   Mobile polish — tightens density and safe-areas on phones
+   ────────────────────────────────────────────────────────────────────────── */
+
+/* iOS notch / Android system bar — pad the top of the topbar */
+.topbar { padding-top: max(10px, env(safe-area-inset-top)); }
+.topbar { padding-left:  max(14px, env(safe-area-inset-left));
+          padding-right: max(14px, env(safe-area-inset-right)); }
+.tabs        { top: calc(49px + env(safe-area-inset-top)); }
+.back-bar    { padding-top: max(10px, env(safe-area-inset-top)); }
+
+/* Always-on touch targets — min 40px high so buttons aren't fiddly */
+.btn { min-height: 40px; display: inline-flex; align-items: center; justify-content: center; }
+.btn.sm { min-height: 32px; }
+
+/* Controls row: scroll horizontally on very narrow screens instead of stacking
+   into many lines.  Keeps everything reachable with one swipe. */
+@media (max-width: 540px) {
+  .controls {
+    display: flex; flex-wrap: wrap;
+    gap: 6px;
+  }
+  .controls .search { flex: 1 1 100%; }
+  .controls .filter { flex: 1 1 calc(50% - 3px); min-width: 0; }
+  .controls .btn    { flex: 0 0 auto; padding: 8px 10px; font-size: 11px; }
+}
+
+/* Topbar — keep brand visible, truncate admin name */
+@media (max-width: 480px) {
+  .topbar { gap: 8px; padding-left: max(10px, env(safe-area-inset-left));
+                       padding-right: max(10px, env(safe-area-inset-right)); }
+  .topbar .brand { font-size: 13px; letter-spacing: 0.12em; }
+  .topbar > div span:first-child {
+    max-width: 100px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+}
+
+/* Tabs — tighter on tiny phones so 3 tabs all fit comfortably */
+@media (max-width: 360px) {
+  .tabs button { padding: 10px 0; font-size: 11px; letter-spacing: 0.04em; }
+}
+
+/* Back-bar inside deployment detail can have 4–5 buttons.
+   Let it wrap to a second row gracefully. */
+@media (max-width: 600px) {
+  .back-bar {
+    flex-wrap: wrap; row-gap: 6px;
+  }
+  .back-bar .ev-name { flex: 1 1 calc(100% - 60px); }
+  .back-bar .btn { flex: 0 0 auto; }
+}
+
+/* Stat boxes — keep all 3 visible on phones, just shrink the number */
+@media (max-width: 480px) {
+  .stat-box { padding: 8px 6px; }
+  .stat-box .stat-value { font-size: 22px; }
+  .stat-box .stat-label { font-size: 9px; }
+}
+
+/* Item card fields — labels can get cramped on narrow phones */
+@media (max-width: 380px) {
+  .item .fields { grid-template-columns: 80px 1fr; gap: 3px 8px; font-size: 12px; }
+  .item .fields .k { font-size: 9px; }
+}
+
+/* Manifest preview — table is too wide for a phone, let it scroll */
+.manifest-paper { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+@media (max-width: 600px) {
+  .manifest-paper { padding: 14px; }
+  .manifest-head { gap: 10px; }
+  .manifest-title { font-size: 22px; }
+  .manifest-qr { width: 80px; height: 80px; }
+  .manifest-table { min-width: 560px; font-size: 11px; }
+  .manifest-table th, .manifest-table td { padding: 6px 8px; }
+}
+
+/* CSV preview — same: scroll instead of squashing */
+.csv-preview { min-width: 540px; }
+
+/* Scanner — full-width on phones for easier framing */
+@media (max-width: 480px) {
+  .scanner-modal { padding: 14px; }
+  .scanner-frame { aspect-ratio: 4 / 5; }
+}
+
+/* Label sheet preview — drop to 1 column on tiny phones for legibility */
+@media (max-width: 420px) {
+  .label-sheet { grid-template-columns: 1fr; }
+}
+
+/* Bulk return / assign rows — stop the per-row condition select from squashing */
+@media (max-width: 480px) {
+  .check-row { padding: 8px 10px; gap: 8px; }
+  .check-row select { font-size: 10px !important; padding: 4px !important; }
+}
+
+/* Dashboard KPI tiles — already reflows to 2-up at 600px; tighten further on tiny phones */
+@media (max-width: 360px) {
+  .kpi-row { gap: 6px; }
+  .stat-box { padding: 8px 4px; }
+}
+
+/* Modal body — full bottom safe-area, tighter padding on phones */
+@media (max-width: 480px) {
+  .modal { padding: 16px; padding-bottom: max(16px, env(safe-area-inset-bottom)); }
+  .modal h2 { font-size: 19px; }
+}
+
+/* Container — tighter side padding on phones so cards don't feel boxed in */
+@media (max-width: 480px) {
+  .container { padding: 12px 10px; }
+}
