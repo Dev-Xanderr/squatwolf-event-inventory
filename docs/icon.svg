@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="SQUATWOLF Inventory">
+  <rect width="512" height="512" fill="#121212"/>
+  <text x="256" y="300"
+        font-family="'Arial Black', 'Impact', sans-serif"
+        font-size="220" font-weight="900"
+        text-anchor="middle" fill="#FAFAFA"
+        letter-spacing="12">SW</text>
+  <rect x="96" y="360" width="320" height="14" fill="#B93A32"/>
+  <text x="256" y="430"
+        font-family="'Arial Black', 'Impact', sans-serif"
+        font-size="42" font-weight="700"
+        text-anchor="middle" fill="#7A7A7A"
+        letter-spacing="8">INVENTORY</text>
+</svg>
