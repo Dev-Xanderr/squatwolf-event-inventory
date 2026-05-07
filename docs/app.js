@@ -4,7 +4,6 @@ const { useState, useEffect, useMemo, useRef } = React;
 // ---------- Supabase ----------
 const SUPABASE_URL      = 'https://jnqlhfehhqnhqscvwjxp.supabase.co';
 const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImpucWxoZmVoaHFuaHFzY3Z3anhwIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzYzMjU0OTcsImV4cCI6MjA5MTkwMTQ5N30.oBknXVFJZhpaBujHUH1MVW-UbKb_tBPCX6gwY8RYCsE';
-const ADMIN_EMAIL       = 'admin@squatwolf.admin';
 const sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
   auth: { persistSession: true, autoRefreshToken: true },
 });
@@ -744,29 +743,121 @@ function LabelSheet({ items, onClose }) {
   );
 }
 
-// ---------- admin login ----------
+// ---------- admin login / request access ----------
 function AdminLoginModal({ onLogin, onClose }) {
+  const [mode, setMode] = useState('signin'); // 'signin' | 'request'
+  const [email, setEmail]       = useState('');
   const [password, setPassword] = useState('');
+  const [name, setName]         = useState('');
   const [err, setErr]           = useState('');
+  const [info, setInfo]         = useState('');
   const [loading, setLoading]   = useState(false);
-  async function submit(e) {
-    e.preventDefault(); setErr(''); setLoading(true);
-    const { data, error } = await sb.auth.signInWithPassword({ email: ADMIN_EMAIL, password });
-    if (error) { setErr('Wrong password'); setLoading(false); return; }
-    onLogin({ token: data.session.access_token, id: data.user.id, name: 'Admin' });
+
+  async function signIn(e) {
+    e.preventDefault(); setErr(''); setInfo(''); setLoading(true);
+    const { data, error } = await sb.auth.signInWithPassword({
+      email: email.trim().toLowerCase(),
+      password,
+    });
+    if (error) {
+      setErr(error.message === 'Invalid login credentials'
+        ? 'Email or password is incorrect.'
+        : error.message);
+      setLoading(false);
+      return;
+    }
+    // Resolve role from admin_users; if not present, this is a pending account.
+    const { data: row } = await sb.from('admin_users').select('*').eq('user_id', data.user.id).maybeSingle();
+    onLogin({
+      id:    data.user.id,
+      email: data.user.email,
+      name:  row?.name || data.user.user_metadata?.name || data.user.email,
+      role:  row?.role || null,           // null = signed in but pending approval
+    });
   }
+
+  async function requestAccess(e) {
+    e.preventDefault(); setErr(''); setInfo(''); setLoading(true);
+    if (!name.trim()) { setErr('Please enter your name.'); setLoading(false); return; }
+    if (password.length < 8) { setErr('Password must be at least 8 characters.'); setLoading(false); return; }
+    const { data, error } = await sb.auth.signUp({
+      email: email.trim().toLowerCase(),
+      password,
+      options: { data: { name: name.trim() } },
+    });
+    if (error) { setErr(error.message); setLoading(false); return; }
+    // If email confirmation is required, session is null until they confirm.
+    if (!data.session) {
+      setInfo('Account created. Check your email for a confirmation link, then sign in. Once confirmed, a master admin will approve your access.');
+      setLoading(false);
+      return;
+    }
+    // Otherwise they're signed in immediately; trigger has queued an admin_requests row.
+    const { data: row } = await sb.from('admin_users').select('*').eq('user_id', data.user.id).maybeSingle();
+    onLogin({
+      id:    data.user.id,
+      email: data.user.email,
+      name:  row?.name || name.trim(),
+      role:  row?.role || null,
+    });
+  }
+
+  async function resetPassword() {
+    setErr(''); setInfo('');
+    if (!email.trim()) { setErr('Enter your email first.'); return; }
+    const { error } = await sb.auth.resetPasswordForEmail(email.trim().toLowerCase(), {
+      redirectTo: location.origin + location.pathname,
+    });
+    if (error) { setErr(error.message); return; }
+    setInfo('Password reset email sent. Check your inbox.');
+  }
+
   return (
     <div className="backdrop" onClick={onClose}>
-      <form className="modal" style={{maxWidth:320}} onClick={e=>e.stopPropagation()} onSubmit={submit}>
-        <h2>Admin Login</h2>
-        <div className="field"><label>Password</label>
-          <input type="password" value={password} onChange={e=>setPassword(e.target.value)}
-            autoFocus autoComplete="current-password" placeholder="Enter admin password" />
+      <form className="modal" style={{maxWidth:380}} onClick={e=>e.stopPropagation()}
+        onSubmit={mode === 'signin' ? signIn : requestAccess}>
+        <h2>{mode === 'signin' ? 'Sign in' : 'Request access'}</h2>
+
+        <div className="auth-tabs">
+          <button type="button" className={mode==='signin' ? 'active' : ''} onClick={()=>{setMode('signin'); setErr(''); setInfo('');}}>
+            Sign in
+          </button>
+          <button type="button" className={mode==='request' ? 'active' : ''} onClick={()=>{setMode('request'); setErr(''); setInfo('');}}>
+            Request access
+          </button>
         </div>
-        <div className="err">{err}</div>
-        <div className="actions">
-          <button type="button" className="btn ghost" onClick={onClose}>Cancel</button>
-          <button type="submit" className="btn primary" disabled={loading}>{loading?'…':'Log in'}</button>
+
+        {mode === 'request' && (
+          <div className="field"><label>Your name</label>
+            <input value={name} onChange={e=>setName(e.target.value)}
+              placeholder="e.g. Alex Martins" autoFocus autoComplete="name" />
+          </div>
+        )}
+        <div className="field"><label>Work email</label>
+          <input type="email" value={email} onChange={e=>setEmail(e.target.value)}
+            autoFocus={mode==='signin'} autoComplete="email"
+            placeholder="you@squatwolf.com" required />
+        </div>
+        <div className="field">
+          <label>Password{mode==='request' ? ' (min 8 chars)' : ''}</label>
+          <input type="password" value={password} onChange={e=>setPassword(e.target.value)}
+            autoComplete={mode==='signin' ? 'current-password' : 'new-password'}
+            placeholder={mode==='signin' ? 'Your password' : 'Create a password'} required />
+        </div>
+
+        {info && <div className="ok">{info}</div>}
+        {err  && <div className="err">{err}</div>}
+
+        <div className="actions" style={{justifyContent:'space-between'}}>
+          {mode === 'signin'
+            ? <button type="button" className="link-btn" onClick={resetPassword}>Forgot password?</button>
+            : <span />}
+          <div style={{display:'flex',gap:8}}>
+            <button type="button" className="btn ghost" onClick={onClose}>Cancel</button>
+            <button type="submit" className="btn primary" disabled={loading}>
+              {loading ? '…' : (mode==='signin' ? 'Sign in' : 'Request access')}
+            </button>
+          </div>
         </div>
       </form>
     </div>
@@ -2228,13 +2319,180 @@ function EventsTab({ admin, openEventId, onOpened }) {
   );
 }
 
+// ---------- manage team (masters only) ----------
+function ManageTeamModal({ me, onClose }) {
+  const [admins, setAdmins]     = useState([]);
+  const [requests, setRequests] = useState([]);
+  const [loading, setLoading]   = useState(true);
+  const [err, setErr]           = useState('');
+  const [busy, setBusy]         = useState(null); // { kind, id }
+
+  async function load() {
+    setLoading(true); setErr('');
+    const [a, r] = await Promise.all([
+      sb.from('admin_users').select('*').order('added_at'),
+      sb.from('admin_requests').select('*').eq('status','pending').order('requested_at'),
+    ]);
+    if (a.error) setErr(a.error.message);
+    setAdmins(a.data || []);
+    setRequests(r.data || []);
+    setLoading(false);
+  }
+  useEffect(() => { load(); }, []);
+
+  // Realtime — keep the team list fresh while open
+  useEffect(() => {
+    const ch = sb.channel('team-mgmt')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'admin_users' },    load)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'admin_requests' }, load)
+      .subscribe();
+    return () => sb.removeChannel(ch);
+  }, []);
+
+  const masterCount = admins.filter(a => a.role === 'master').length;
+
+  async function approve(req, asRole) {
+    setBusy({ kind:'approve', id:req.id }); setErr('');
+    const now = new Date().toISOString();
+    try {
+      const { error: insErr } = await sb.from('admin_users').insert({
+        user_id: req.user_id, email: req.email, name: req.name || req.email,
+        role: asRole, added_by: me.id,
+      });
+      if (insErr) throw insErr;
+      const { error: upErr } = await sb.from('admin_requests').update({
+        status: 'approved', reviewed_by: me.id, reviewed_at: now,
+      }).eq('id', req.id);
+      if (upErr) throw upErr;
+      load();
+    } catch(e) { setErr(e.message); }
+    setBusy(null);
+  }
+
+  async function deny(req) {
+    if (!window.confirm(`Deny access for ${req.email}?`)) return;
+    setBusy({ kind:'deny', id:req.id }); setErr('');
+    const now = new Date().toISOString();
+    const { error } = await sb.from('admin_requests').update({
+      status: 'denied', reviewed_by: me.id, reviewed_at: now,
+    }).eq('id', req.id);
+    if (error) setErr(error.message);
+    load(); setBusy(null);
+  }
+
+  async function changeRole(user, newRole) {
+    if (user.user_id === me.id && user.role === 'master' && newRole === 'admin') {
+      // Allow self-demote only if there's another master left
+      if (masterCount <= 1) {
+        setErr("You're the only master — promote someone else first.");
+        return;
+      }
+      if (!window.confirm("Demote yourself to Admin? You'll lose team management.")) return;
+    } else if (newRole === 'master') {
+      if (!window.confirm(`Promote ${user.email} to Master? They'll be able to add and remove other admins.`)) return;
+    } else {
+      if (!window.confirm(`Demote ${user.email} to Admin?`)) return;
+    }
+    setBusy({ kind:'role', id:user.user_id }); setErr('');
+    const { error } = await sb.from('admin_users').update({ role: newRole }).eq('user_id', user.user_id);
+    if (error) setErr(error.message);
+    load(); setBusy(null);
+  }
+
+  async function remove(user) {
+    if (user.role === 'master' && masterCount <= 1) {
+      setErr("Can't remove the last master.");
+      return;
+    }
+    if (!window.confirm(`Remove ${user.email} from the team? They'll lose all admin access.`)) return;
+    setBusy({ kind:'remove', id:user.user_id }); setErr('');
+    const { error } = await sb.from('admin_users').delete().eq('user_id', user.user_id);
+    if (error) setErr(error.message);
+    load(); setBusy(null);
+  }
+
+  return (
+    <div className="backdrop" onClick={onClose}>
+      <div className="modal" onClick={e=>e.stopPropagation()} style={{maxWidth:640}}>
+        <h2>Manage team</h2>
+
+        {err && <div className="err" style={{marginBottom:10}}>{err}</div>}
+
+        <div className="section-label" style={{marginTop:0}}>
+          Pending requests {requests.length > 0 && <span style={{color:'#d48a34'}}>· {requests.length}</span>}
+        </div>
+        {loading
+          ? <div className="empty" style={{padding:18}}>Loading…</div>
+          : requests.length === 0
+            ? <div className="empty" style={{padding:18}}>No pending requests.</div>
+            : <div className="team-list">
+                {requests.map(req => (
+                  <div className="team-row" key={req.id}>
+                    <div style={{flex:1, minWidth:0}}>
+                      <div className="team-name">{req.name || req.email}</div>
+                      <div className="team-sub">{req.email} · requested {fmtTime(req.requested_at)}</div>
+                    </div>
+                    <div style={{display:'flex',gap:6,flexWrap:'wrap'}}>
+                      <button className="btn sm" disabled={busy} onClick={()=>deny(req)}>Deny</button>
+                      <button className="btn sm" disabled={busy} onClick={()=>approve(req,'admin')}>Approve as Admin</button>
+                      <button className="btn sm primary" disabled={busy} onClick={()=>approve(req,'master')}>Approve as Master</button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+        }
+
+        <div className="section-label">Team members ({admins.length})</div>
+        {admins.length === 0
+          ? <div className="empty" style={{padding:18}}>No team members yet.</div>
+          : <div className="team-list">
+              {admins.map(u => {
+                const isMe = u.user_id === me.id;
+                return (
+                  <div className="team-row" key={u.user_id}>
+                    <div style={{flex:1, minWidth:0}}>
+                      <div className="team-name">
+                        {u.name || u.email}
+                        {isMe && <span className="team-self"> (you)</span>}
+                      </div>
+                      <div className="team-sub">{u.email} · added {fmtTime(u.added_at)}</div>
+                    </div>
+                    <span className={`role-pill ${u.role}`} style={{marginRight:6}}>{u.role}</span>
+                    <div style={{display:'flex',gap:6,flexWrap:'wrap'}}>
+                      {u.role === 'admin'
+                        ? <button className="btn sm" disabled={busy} onClick={()=>changeRole(u,'master')}>Promote</button>
+                        : <button className="btn sm" disabled={busy || (isMe && masterCount<=1)} onClick={()=>changeRole(u,'admin')}>Demote</button>
+                      }
+                      <button className="btn sm danger" disabled={busy || (u.role==='master' && masterCount<=1)} onClick={()=>remove(u)}>Remove</button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+        }
+
+        <div className="actions">
+          <button className="btn ghost" onClick={onClose}>Close</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ---------- main app ----------
 function App() {
-  const [admin, setAdmin]       = useState(() => {
-    try { return JSON.parse(localStorage.getItem('eit:admin')) || null; } catch { return null; }
+  // session: any signed-in user (admin OR pending). admin: only approved roles.
+  // The rest of the app gates on `admin` so writes are blocked when pending.
+  const [session, setSession]   = useState(() => {
+    try { return JSON.parse(localStorage.getItem('eit:session')) || null; } catch { return null; }
   });
+  const admin = session && (session.role === 'admin' || session.role === 'master') ? session : null;
+  const isMaster = session?.role === 'master';
+  const isPending = session && !session.role;
+
   const [tab, setTab]           = useState('dashboard'); // 'dashboard' | 'items' | 'events'
   const [loginOpen, setLoginOpen] = useState(false);
+  const [manageOpen, setManageOpen] = useState(false);
   const [openItemId, setOpenItemId]   = useState(null);
   const [openEventId, setOpenEventId] = useState(null);
   const [landing, setLanding]         = useState(null);  // { kind: 'item'|'event', id } | null
@@ -2263,14 +2521,50 @@ function App() {
     setLanding(null);
   }
 
+  // Resolve role from admin_users for any active session — handles refresh,
+  // master approving us in another tab, etc.
+  async function resolveSession(authUser) {
+    if (!authUser) return null;
+    const { data: row } = await sb.from('admin_users').select('*').eq('user_id', authUser.id).maybeSingle();
+    return {
+      id:    authUser.id,
+      email: authUser.email,
+      name:  row?.name || authUser.user_metadata?.name || authUser.email,
+      role:  row?.role || null,  // null = signed in but not approved yet
+    };
+  }
+  function persistSession(s) {
+    if (s) localStorage.setItem('eit:session', JSON.stringify(s));
+    else   localStorage.removeItem('eit:session');
+    // legacy key cleanup
+    localStorage.removeItem('eit:admin');
+  }
+
   useEffect(() => {
-    sb.auth.getSession().then(({ data: { session } }) => {
-      if (!session) { setAdmin(null); localStorage.removeItem('eit:admin'); }
+    sb.auth.getSession().then(async ({ data: { session: s } }) => {
+      const next = await resolveSession(s?.user);
+      setSession(next); persistSession(next);
     });
-    sb.auth.onAuthStateChange((_, session) => {
-      if (!session) { setAdmin(null); localStorage.removeItem('eit:admin'); }
+    const { data: sub } = sb.auth.onAuthStateChange(async (_, s) => {
+      const next = await resolveSession(s?.user);
+      setSession(next); persistSession(next);
     });
+    return () => sub?.subscription?.unsubscribe?.();
   }, []);
+
+  // Realtime: react when our admin_users row changes (master approves us, etc.)
+  useEffect(() => {
+    if (!session?.id) return;
+    const ch = sb.channel('admin_users_self')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'admin_users', filter: `user_id=eq.${session.id}` },
+        async () => {
+          const { data: { user } } = await sb.auth.getUser();
+          const next = await resolveSession(user);
+          setSession(next); persistSession(next);
+        })
+      .subscribe();
+    return () => sb.removeChannel(ch);
+  }, [session?.id]);
 
   // global "log in" request from inline prompts
   useEffect(() => {
@@ -2280,12 +2574,10 @@ function App() {
   }, []);
 
   function handleLogin(data) {
-    const a = { token: data.token, id: data.id, name: data.name };
-    setAdmin(a); localStorage.setItem('eit:admin', JSON.stringify(a));
-    setLoginOpen(false);
+    setSession(data); persistSession(data); setLoginOpen(false);
   }
   function logout() {
-    sb.auth.signOut(); setAdmin(null); localStorage.removeItem('eit:admin');
+    sb.auth.signOut(); setSession(null); persistSession(null);
   }
 
   // While the scan landing is up, render only that — no tabs, no chrome.
@@ -2305,9 +2597,14 @@ function App() {
       <div className="topbar">
         <span className="brand">SQUATWOLF</span>
         <span className="spacer" />
-        {admin
+        {session
           ? <div className="topbar-mode">
-              <span className="role-pill admin">Admin · {admin.name}</span>
+              {session.role === 'master' && <span className="role-pill master">Master · {session.name}</span>}
+              {session.role === 'admin'  && <span className="role-pill admin">Admin · {session.name}</span>}
+              {!session.role             && <span className="role-pill pending">Pending · {session.name}</span>}
+              {isMaster && (
+                <button className="btn sm" onClick={()=>setManageOpen(true)} title="Manage team">⚙ Team</button>
+              )}
               <button className="btn sm ghost" onClick={logout} title="Log out">↺</button>
             </div>
           : <div className="topbar-mode">
@@ -2316,6 +2613,11 @@ function App() {
             </div>
         }
       </div>
+      {isPending && (
+        <div className="pending-banner">
+          Your access is pending approval. You can browse the inventory but can't edit yet.
+        </div>
+      )}
 
       {/* tabs */}
       <div className="tabs">
@@ -2331,6 +2633,9 @@ function App() {
       {tab === 'events'    && <EventsTab admin={admin} openEventId={openEventId} onOpened={()=>setOpenEventId(null)} />}
 
       {loginOpen && <AdminLoginModal onLogin={handleLogin} onClose={()=>setLoginOpen(false)} />}
+      {manageOpen && isMaster && (
+        <ManageTeamModal me={session} onClose={()=>setManageOpen(false)} />
+      )}
     </div>
   );
 }

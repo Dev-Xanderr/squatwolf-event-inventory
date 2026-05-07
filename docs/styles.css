@@ -80,6 +80,78 @@ h1, h2, h3 {
 .role-pill.admin::before {
   content: '●'; color: #d44438; margin-right: 6px; font-size: 8px;
 }
+.role-pill.master {
+  background: rgba(212, 165, 52, 0.12);
+  color: #d4a534;
+  border: 1px solid rgba(212, 165, 52, 0.4);
+}
+.role-pill.master::before {
+  content: '★'; color: #d4a534; margin-right: 6px; font-size: 9px;
+}
+.role-pill.pending {
+  background: rgba(212, 138, 52, 0.12);
+  color: #d48a34;
+  border: 1px solid rgba(212, 138, 52, 0.4);
+}
+.role-pill.pending::before {
+  content: '⏱'; color: #d48a34; margin-right: 6px; font-size: 9px;
+}
+
+/* Pending banner shown right under the topbar when a user is awaiting approval */
+.pending-banner {
+  background: rgba(212, 138, 52, 0.10);
+  border-bottom: 1px solid rgba(212, 138, 52, 0.4);
+  color: #d48a34;
+  font-family: 'Azeret Mono', monospace;
+  font-size: 12px;
+  letter-spacing: 0.04em;
+  padding: 8px 14px;
+  text-align: center;
+}
+
+/* Auth modal tabs */
+.auth-tabs {
+  display: flex;
+  border: 1px solid #2a2a2a;
+  margin-bottom: 14px;
+}
+.auth-tabs button {
+  flex: 1;
+  background: transparent;
+  border: none;
+  padding: 10px 0;
+  color: #7A7A7A;
+  font-family: 'Azeret Mono', monospace;
+  font-size: 11px;
+  letter-spacing: 0.06em; text-transform: uppercase;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+.auth-tabs button.active {
+  background: #B93A32;
+  color: #FAFAFA;
+}
+
+/* Manage team list */
+.team-list { display: flex; flex-direction: column; gap: 6px; margin-bottom: 14px; }
+.team-row {
+  display: flex; align-items: center; gap: 10px;
+  background: #1a1a1a; border: 1px solid #2a2a2a;
+  padding: 10px 12px;
+  flex-wrap: wrap;
+}
+.team-name {
+  font-family: 'Barlow Condensed', sans-serif;
+  font-size: 16px; font-weight: 500;
+  letter-spacing: 0.04em; text-transform: uppercase;
+}
+.team-self { color: #7A7A7A; font-size: 11px; font-weight: 400; }
+.team-sub {
+  font-family: 'Azeret Mono', monospace;
+  font-size: 11px; color: #7A7A7A;
+  margin-top: 2px;
+  word-break: break-all;
+}
 @media (max-width: 480px) {
   .role-pill { max-width: 130px; font-size: 9px; padding: 3px 7px; }
 }
