@@ -2532,11 +2532,11 @@ function SignInGate({ onLoginRequest, deepLinkLabel }) {
         <div className="signin-sub">
           {deepLinkLabel
             ? deepLinkLabel
-            : 'Internal tool — sign in with your @squatwolf.com email to continue.'}
+            : 'Internal tool — sign in to continue.'}
         </div>
-        <button className="btn primary signin-cta" onClick={onLoginRequest}>Sign in / Request access</button>
+        <button className="btn primary signin-cta" onClick={onLoginRequest}>Sign in</button>
         <div className="signin-foot">
-          Anyone with an @squatwolf.com email gets read-only access automatically. Edit access is granted by a master admin.
+          Access is approved by a master admin. If you don't have an account, contact your team lead.
         </div>
       </div>
     </div>
