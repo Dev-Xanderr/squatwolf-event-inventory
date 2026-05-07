@@ -1,0 +1,12 @@
+#!/bin/sh
+# Auto-rebuild docs/app.compiled.js when docs/app.js is staged.
+# Enabled via the `prepare` npm script (sets core.hooksPath = .githooks).
+
+if git diff --cached --name-only | grep -q "^docs/app\.js$"; then
+  echo "[pre-commit] docs/app.js is staged — running build:docs"
+  npm run build:docs --silent || {
+    echo "[pre-commit] build failed — aborting commit"
+    exit 1
+  }
+  git add docs/app.compiled.js docs/app.compiled.js.map
+fi

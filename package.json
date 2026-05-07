@@ -6,7 +6,8 @@
   "scripts": {
     "start": "node server.js",
     "dev": "node server.js",
-    "build:docs": "babel docs/app.js --presets=@babel/preset-react --out-file docs/app.compiled.js --source-maps"
+    "build:docs": "babel docs/app.js --presets=@babel/preset-react --out-file docs/app.compiled.js --source-maps",
+    "prepare": "git config core.hooksPath .githooks"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.103.2",
