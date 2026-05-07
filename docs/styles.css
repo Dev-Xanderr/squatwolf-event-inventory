@@ -52,7 +52,7 @@ body {
   font-size: 15px;
 }
 button, input, select, textarea {
-  font-family: 'Azeret Mono', monospace;
+  font-family: 'Manrope', sans-serif;
   font-size: inherit;
   color: inherit;
 }
@@ -60,10 +60,10 @@ button { cursor: pointer; }
 a { color: #B93A32; }
 
 h1, h2, h3 {
-  font-family: 'Barlow Condensed', sans-serif;
+  font-family: 'Manrope', sans-serif;
   font-weight: 500;
   letter-spacing: 0.04em;
-  text-transform: uppercase;
+  text-transform: none;
 }
 
 /* ── Layout ───────────────────────────────────────────────────────────────── */
@@ -90,7 +90,7 @@ h1, h2, h3 {
 }
 .topbar .role-tag {
   padding: 2px 8px; border-radius: 0; font-size: 11px; font-weight: 700;
-  letter-spacing: 0.05em; text-transform: uppercase;
+  letter-spacing: 0.05em; text-transform: none;
 }
 .role-tag.editor { background: #B93A32; color: #FAFAFA; }
 .role-tag.viewer { background: #2a2a2a; color: #7A7A7A; }
@@ -100,9 +100,9 @@ h1, h2, h3 {
 .role-pill {
   display: inline-flex; align-items: center;
   padding: 4px 9px;
-  font-family: 'Azeret Mono', monospace;
+  font-family: 'Manrope', sans-serif;
   font-size: 10px; font-weight: 700;
-  letter-spacing: 0.08em; text-transform: uppercase;
+  letter-spacing: 0.08em; text-transform: none;
   white-space: nowrap;
   max-width: 200px; overflow: hidden; text-overflow: ellipsis;
 }
@@ -161,7 +161,7 @@ h1, h2, h3 {
 .role-select {
   background: #1a1a1a; border: 1px solid #2a2a2a; color: #FAFAFA;
   padding: 6px 8px; font-size: 11px;
-  font-family: 'Azeret Mono', monospace; letter-spacing: 0.04em; text-transform: uppercase;
+  font-family: 'Manrope', sans-serif; letter-spacing: 0.04em; text-transform: none;
 }
 .role-select:focus { border-color: rgba(255,255,255,0.45); outline: none; }
 .role-select:disabled { opacity: 0.45; cursor: not-allowed; }
@@ -190,7 +190,7 @@ h1, h2, h3 {
   background: rgba(232, 112, 112, 0.10);
   border-bottom: 1px solid rgba(232, 112, 112, 0.4);
   color: #e87070;
-  font-family: 'Azeret Mono', monospace;
+  font-family: 'Manrope', sans-serif;
   font-size: 12px;
   letter-spacing: 0.04em;
   padding: 8px 14px;
@@ -202,7 +202,7 @@ h1, h2, h3 {
   background: rgba(212, 138, 52, 0.10);
   border-bottom: 1px solid rgba(212, 138, 52, 0.4);
   color: #d48a34;
-  font-family: 'Azeret Mono', monospace;
+  font-family: 'Manrope', sans-serif;
   font-size: 12px;
   letter-spacing: 0.04em;
   padding: 8px 14px;
@@ -221,9 +221,9 @@ h1, h2, h3 {
   border: none;
   padding: 10px 0;
   color: #7A7A7A;
-  font-family: 'Azeret Mono', monospace;
+  font-family: 'Manrope', sans-serif;
   font-size: 11px;
-  letter-spacing: 0.06em; text-transform: uppercase;
+  letter-spacing: 0.06em; text-transform: none;
   cursor: pointer;
   transition: background 0.15s, color 0.15s;
 }
@@ -240,7 +240,7 @@ h1, h2, h3 {
 }
 .role-legend > div {
   display: flex; align-items: center; gap: 10px;
-  font-family: 'Azeret Mono', monospace; font-size: 11px; color: #d0d0d0;
+  font-family: 'Manrope', sans-serif; font-size: 11px; color: #d0d0d0;
 }
 .role-legend .role-pill { min-width: 70px; justify-content: center; }
 
@@ -253,13 +253,13 @@ h1, h2, h3 {
   flex-wrap: wrap;
 }
 .team-name {
-  font-family: 'Barlow Condensed', sans-serif;
+  font-family: 'Manrope', sans-serif;
   font-size: 16px; font-weight: 500;
-  letter-spacing: 0.04em; text-transform: uppercase;
+  letter-spacing: 0.04em; text-transform: none;
 }
 .team-self { color: #7A7A7A; font-size: 11px; font-weight: 400; }
 .team-sub {
-  font-family: 'Azeret Mono', monospace;
+  font-family: 'Manrope', sans-serif;
   font-size: 11px; color: #7A7A7A;
   margin-top: 2px;
   word-break: break-all;
@@ -277,9 +277,9 @@ h1, h2, h3 {
   border: 1px dashed #2a2a2a;
   color: #888;
   padding: 8px 12px;
-  font-family: 'Azeret Mono', monospace;
+  font-family: 'Manrope', sans-serif;
   font-size: 11px;
-  letter-spacing: 0.06em; text-transform: uppercase;
+  letter-spacing: 0.06em; text-transform: none;
   cursor: pointer;
   transition: color 0.15s, border-color 0.15s, background 0.15s;
 }
@@ -306,9 +306,9 @@ h1, h2, h3 {
   flex: 1; padding: 12px 0;
   background: none; border: none; border-radius: 0;
   color: #7A7A7A;
-  font-family: 'Azeret Mono', monospace;
+  font-family: 'Manrope', sans-serif;
   font-size: 12px; font-weight: 400;
-  letter-spacing: 0.06em; text-transform: uppercase;
+  letter-spacing: 0.06em; text-transform: none;
   border-bottom: 2px solid transparent;
   cursor: pointer;
   transition: color 0.15s, border-color 0.15s;
@@ -323,7 +323,7 @@ h1, h2, h3 {
 .controls input, .controls select {
   background: #1a1a1a; border: 1px solid #2a2a2a; color: #FAFAFA;
   padding: 10px 12px; border-radius: 0; outline: none;
-  font-family: 'Azeret Mono', monospace; font-size: 13px;
+  font-family: 'Manrope', sans-serif; font-size: 13px;
   min-width: 0;
 }
 .controls input:focus, .controls select:focus { border-color: rgba(255,255,255,0.45); }
@@ -334,9 +334,9 @@ h1, h2, h3 {
 .btn {
   border: 1px solid #2a2a2a; background: #1a1a1a; color: #FAFAFA;
   padding: 10px 16px; border-radius: 0;
-  font-family: 'Azeret Mono', monospace;
+  font-family: 'Manrope', sans-serif;
   font-size: 12px; font-weight: 400;
-  letter-spacing: 0.05em; text-transform: uppercase;
+  letter-spacing: 0.05em; text-transform: none;
   transition: border-radius 0.15s, background 0.15s, border-color 0.15s;
   white-space: nowrap;
 }
@@ -373,13 +373,13 @@ h1, h2, h3 {
 .item.item-retired   { border-left-color: var(--text-disabled); opacity: 0.7; }
 .item .row { display: flex; align-items: center; gap: 10px; }
 .item .name {
-  font-family: 'Barlow Condensed', sans-serif;
+  font-family: 'Manrope', sans-serif;
   font-size: 19px; font-weight: 500;
-  letter-spacing: 0.04em; text-transform: uppercase;
+  letter-spacing: 0.04em; text-transform: none;
   flex: 1;
 }
 .item .meta {
-  font-family: 'Azeret Mono', monospace;
+  font-family: 'Manrope', sans-serif;
   font-size: 11px; color: #7A7A7A;
 }
 .item .fields {
@@ -387,9 +387,9 @@ h1, h2, h3 {
   gap: 4px 12px; font-size: 13px;
 }
 .item .fields .k {
-  font-family: 'Azeret Mono', monospace;
+  font-family: 'Manrope', sans-serif;
   font-size: 10px; color: #7A7A7A;
-  letter-spacing: 0.05em; text-transform: uppercase;
+  letter-spacing: 0.05em; text-transform: none;
   padding-top: 1px;
 }
 .item .fields .v { color: #EFEFEF; word-break: break-word; }
@@ -399,9 +399,9 @@ h1, h2, h3 {
 .badge {
   display: inline-block; padding: 2px 8px;
   border-radius: 0;
-  font-family: 'Azeret Mono', monospace;
+  font-family: 'Manrope', sans-serif;
   font-size: 10px; font-weight: 400;
-  letter-spacing: 0.05em; text-transform: uppercase;
+  letter-spacing: 0.05em; text-transform: none;
 }
 .badge.good            { background: #0d2b17; color: #5fcf7e; border: 1px solid #1a4a28; }
 .badge.damaged         { background: #2b0d0d; color: #e87070; border: 1px solid #4a1a1a; }
@@ -423,12 +423,12 @@ h1, h2, h3 {
 }
 .status-banner > div:first-child { flex: 1; min-width: 0; }
 .status-banner-title {
-  font-family: 'Barlow Condensed', sans-serif;
+  font-family: 'Manrope', sans-serif;
   font-size: 16px; font-weight: 700;
-  letter-spacing: 0.06em; text-transform: uppercase;
+  letter-spacing: 0.06em; text-transform: none;
 }
 .status-banner-sub {
-  font-family: 'Azeret Mono', monospace;
+  font-family: 'Manrope', sans-serif;
   font-size: 11px; margin-top: 2px;
 }
 .retired-banner   { background: #161616; border-color: #333; color: #888; }
@@ -446,9 +446,9 @@ h1, h2, h3 {
   margin-top: 4px;
 }
 .quick-cond-label {
-  font-family: 'Azeret Mono', monospace;
+  font-family: 'Manrope', sans-serif;
   font-size: 9px; color: #5a5a5a;
-  letter-spacing: 0.08em; text-transform: uppercase;
+  letter-spacing: 0.08em; text-transform: none;
   margin-right: 4px;
 }
 .quick-cond-pill {
@@ -456,9 +456,9 @@ h1, h2, h3 {
   border: 1px solid #2a2a2a;
   color: #888;
   padding: 3px 9px;
-  font-family: 'Azeret Mono', monospace;
+  font-family: 'Manrope', sans-serif;
   font-size: 10px; font-weight: 700;
-  letter-spacing: 0.06em; text-transform: uppercase;
+  letter-spacing: 0.06em; text-transform: none;
   cursor: pointer;
   transition: border-color 0.15s, color 0.15s, background 0.15s;
 }
@@ -493,9 +493,9 @@ h1, h2, h3 {
   text-align: left; background: #1a1a1a;
   position: sticky; top: 0;
   padding: 8px 10px; border-bottom: 1px solid #2a2a2a;
-  font-family: 'Azeret Mono', monospace;
+  font-family: 'Manrope', sans-serif;
   font-size: 10px; color: #7A7A7A;
-  letter-spacing: 0.06em; text-transform: uppercase;
+  letter-spacing: 0.06em; text-transform: none;
 }
 .csv-preview td {
   padding: 6px 10px;
@@ -509,12 +509,12 @@ h1, h2, h3 {
 .empty {
   text-align: center; padding: 48px 16px; color: var(--text-mute);
   border: 1px dashed var(--border);
-  font-family: 'Azeret Mono', monospace; font-size: 13px;
+  font-family: 'Manrope', sans-serif; font-size: 13px;
 }
 /* All-clear empty state — branded, calm, signals "nothing's wrong" */
 .dash-empty.allclear {
-  font-family: 'Barlow Condensed', sans-serif;
-  font-size: 14px; letter-spacing: 0.08em; text-transform: uppercase;
+  font-family: 'Manrope', sans-serif;
+  font-size: 14px; letter-spacing: 0.08em; text-transform: none;
   color: var(--accent-good);
   padding: 14px 8px;
 }
@@ -533,10 +533,10 @@ h1, h2, h3 {
 .dash-section { margin-bottom: 22px; }
 /* Primary section headers — Barlow gives them weight and a designed feel */
 .dash-section-head {
-  font-family: 'Barlow Condensed', sans-serif;
+  font-family: 'Manrope', sans-serif;
   font-size: 16px; font-weight: 500;
   color: var(--text);
-  letter-spacing: 0.08em; text-transform: uppercase;
+  letter-spacing: 0.08em; text-transform: none;
   padding: 0 0 8px 0;
   border-bottom: 1px solid var(--border);
   margin-bottom: 10px;
@@ -544,7 +544,7 @@ h1, h2, h3 {
 }
 .dash-list { display: flex; flex-direction: column; gap: 6px; }
 .dash-empty {
-  font-family: 'Azeret Mono', monospace; font-size: 12px;
+  font-family: 'Manrope', sans-serif; font-size: 12px;
   color: #7A7A7A; padding: 8px 0;
 }
 .dash-row {
@@ -562,13 +562,13 @@ h1, h2, h3 {
 .team-row:active,
 .tabs button:active { background: #221010; transition: background 60ms; }
 .dash-row-name {
-  font-family: 'Barlow Condensed', sans-serif;
+  font-family: 'Manrope', sans-serif;
   font-size: 16px; font-weight: 500;
-  letter-spacing: 0.04em; text-transform: uppercase;
+  letter-spacing: 0.04em; text-transform: none;
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 .dash-row-sub {
-  font-family: 'Azeret Mono', monospace;
+  font-family: 'Manrope', sans-serif;
   font-size: 11px; color: #7A7A7A;
   margin-top: 2px;
 }
@@ -584,15 +584,15 @@ h1, h2, h3 {
   margin-bottom: 4px;
 }
 .dash-group-name {
-  font-family: 'Barlow Condensed', sans-serif;
+  font-family: 'Manrope', sans-serif;
   font-size: 18px; font-weight: 700;
-  letter-spacing: 0.06em; text-transform: uppercase;
+  letter-spacing: 0.06em; text-transform: none;
 }
 .dash-group-count {
   display: inline-flex; align-items: center;
   background: var(--brand-red); color: var(--text);
   padding: 2px 9px;
-  font-family: 'Azeret Mono', monospace;
+  font-family: 'Manrope', sans-serif;
   font-size: 10px; font-weight: 700;
   letter-spacing: 0.08em;
 }
@@ -610,16 +610,16 @@ h1, h2, h3 {
 .stat-box.alert        { border-bottom-color: var(--accent-out); }
 .stat-box.alert.danger { border-bottom-color: var(--accent-bad); }
 .stat-box .stat-value {
-  font-family: 'Barlow Condensed', sans-serif;
+  font-family: 'Manrope', sans-serif;
   font-size: 36px; font-weight: 700; letter-spacing: 0.04em;
   line-height: 1;
 }
 .stat-box.alert        .stat-value { color: var(--accent-out); }
 .stat-box.alert.danger .stat-value { color: var(--accent-bad); }
 .stat-box .stat-label {
-  font-family: 'Azeret Mono', monospace;
+  font-family: 'Manrope', sans-serif;
   font-size: 10px; color: var(--text-mute);
-  letter-spacing: 0.06em; text-transform: uppercase;
+  letter-spacing: 0.06em; text-transform: none;
   margin-top: 6px;
 }
 
@@ -647,15 +647,15 @@ h1, h2, h3 {
 
 .modal h2 {
   margin: 0 0 16px 0;
-  font-family: 'Barlow Condensed', sans-serif;
+  font-family: 'Manrope', sans-serif;
   font-size: 22px; font-weight: 500;
-  letter-spacing: 0.06em; text-transform: uppercase;
+  letter-spacing: 0.06em; text-transform: none;
 }
 .modal .field { display: flex; flex-direction: column; gap: 6px; margin-bottom: 14px; }
 .modal .field label {
-  font-family: 'Azeret Mono', monospace;
+  font-family: 'Manrope', sans-serif;
   font-size: 10px; color: #7A7A7A;
-  letter-spacing: 0.08em; text-transform: uppercase;
+  letter-spacing: 0.08em; text-transform: none;
 }
 .modal .field input,
 .modal .field select,
@@ -694,19 +694,19 @@ h1, h2, h3 {
 }
 .history .event .head {
   display: flex; justify-content: space-between; gap: 8px;
-  font-family: 'Azeret Mono', monospace; font-size: 11px; color: #7A7A7A;
+  font-family: 'Manrope', sans-serif; font-size: 11px; color: #7A7A7A;
 }
 .history .event .who { color: #B93A32; font-weight: 700; }
 .history .event .action {
-  font-family: 'Barlow Condensed', sans-serif;
+  font-family: 'Manrope', sans-serif;
   font-size: 15px; font-weight: 500;
-  letter-spacing: 0.04em; text-transform: uppercase;
+  letter-spacing: 0.04em; text-transform: none;
   margin-top: 4px;
 }
 .history .event .changes { font-size: 13px; color: #EFEFEF; margin-top: 4px; }
 .history .event .changes .chg { display: block; }
 .history .event .changes .k {
-  font-family: 'Azeret Mono', monospace; font-size: 11px; color: #7A7A7A;
+  font-family: 'Manrope', sans-serif; font-size: 11px; color: #7A7A7A;
 }
 .history .event .changes .from { color: #e87070; text-decoration: line-through; }
 .history .event .changes .arrow { color: #7A7A7A; margin: 0 6px; }
@@ -715,12 +715,12 @@ h1, h2, h3 {
 /* ── Error / ok ──────────────────────────────────────────────────────────── */
 .err {
   color: #e87070;
-  font-family: 'Azeret Mono', monospace; font-size: 12px;
+  font-family: 'Manrope', sans-serif; font-size: 12px;
   margin-top: 6px; min-height: 18px;
 }
 .ok {
   color: #5fcf7e;
-  font-family: 'Azeret Mono', monospace; font-size: 12px;
+  font-family: 'Manrope', sans-serif; font-size: 12px;
   margin-top: 6px;
 }
 
@@ -755,12 +755,12 @@ h1, h2, h3 {
 .att-remove:hover { background: #3a1414; }
 .att-upload-btn {
   display: inline-flex; align-items: center; cursor: pointer;
-  font-family: 'Azeret Mono', monospace; font-size: 12px;
-  letter-spacing: 0.04em; text-transform: uppercase;
+  font-family: 'Manrope', sans-serif; font-size: 12px;
+  letter-spacing: 0.04em; text-transform: none;
 }
 .att-upload-btn.disabled { opacity: 0.35; pointer-events: none; }
 .att-loading {
-  font-family: 'Azeret Mono', monospace; font-size: 12px; color: #7A7A7A;
+  font-family: 'Manrope', sans-serif; font-size: 12px; color: #7A7A7A;
 }
 
 /* ── Lightbox ────────────────────────────────────────────────────────────── */
@@ -783,7 +783,7 @@ h1, h2, h3 {
   padding: 16px; max-width: 95vw;
 }
 .lightbox-caption {
-  font-family: 'Azeret Mono', monospace;
+  font-family: 'Manrope', sans-serif;
   color: #7A7A7A; font-size: 11px; text-align: center;
 }
 
@@ -792,7 +792,7 @@ h1, h2, h3 {
   position: fixed; left: 50%; bottom: 20px; transform: translateX(-50%);
   background: #1a1a1a; border: 1px solid #2a2a2a;
   padding: 10px 18px;
-  font-family: 'Azeret Mono', monospace; font-size: 12px;
+  font-family: 'Manrope', sans-serif; font-size: 12px;
   letter-spacing: 0.04em;
   z-index: 50;
   box-shadow: 0 8px 30px rgba(0,0,0,0.5);
@@ -809,7 +809,7 @@ h1, h2, h3 {
   pointer-events: auto;
   background: #1a1a1a; border: 1px solid #2a2a2a;
   padding: 10px 16px; max-width: 480px;
-  font-family: 'Azeret Mono', monospace; font-size: 12px;
+  font-family: 'Manrope', sans-serif; font-size: 12px;
   letter-spacing: 0.04em;
   color: #FAFAFA;
   box-shadow: 0 8px 30px rgba(0,0,0,0.5);
@@ -824,10 +824,10 @@ h1, h2, h3 {
 
 /* ── Section label (smaller in-modal section headers) ────────────────────── */
 .section-label {
-  font-family: 'Barlow Condensed', sans-serif;
+  font-family: 'Manrope', sans-serif;
   font-size: 14px; font-weight: 500;
   color: var(--text);
-  letter-spacing: 0.08em; text-transform: uppercase;
+  letter-spacing: 0.08em; text-transform: none;
   margin: 18px 0 10px 0;
   padding-bottom: 6px;
   border-bottom: 1px solid var(--border);
@@ -863,7 +863,7 @@ h1, h2, h3 {
   display: inline-flex; align-items: center;
   background: #B93A32; color: #FAFAFA;
   padding: 3px 10px;
-  font-family: 'Azeret Mono', monospace;
+  font-family: 'Manrope', sans-serif;
   font-size: 12px; font-weight: 700; letter-spacing: 0.06em;
   min-width: 28px; justify-content: center;
 }
@@ -872,7 +872,7 @@ h1, h2, h3 {
   display: flex; align-items: center; gap: 10px;
   margin-top: 10px;
   padding: 10px 12px;
-  font-family: 'Azeret Mono', monospace; font-size: 12px;
+  font-family: 'Manrope', sans-serif; font-size: 12px;
   border: 1px solid;
 }
 .scanner-toast.ok      { background: rgba(95,207,126,0.10); border-color: rgba(95,207,126,0.4); color: #5fcf7e; }
@@ -880,8 +880,8 @@ h1, h2, h3 {
 .scanner-toast.undone  { background: #1a1a1a; border-color: #2a2a2a; color: #888; }
 .scanner-undo {
   background: transparent; border: 1px solid currentColor; color: inherit;
-  padding: 4px 10px; font-family: 'Azeret Mono', monospace;
-  font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase;
+  padding: 4px 10px; font-family: 'Manrope', sans-serif;
+  font-size: 11px; letter-spacing: 0.06em; text-transform: none;
   cursor: pointer;
 }
 .scanner-undo:hover { background: rgba(255,255,255,0.06); }
@@ -902,19 +902,19 @@ h1, h2, h3 {
 .label-qr svg { width: 100% !important; height: 100% !important; display: block; }
 .label-meta { flex: 1; min-width: 0; }
 .label-name {
-  font-family: 'Barlow Condensed', sans-serif;
+  font-family: 'Manrope', sans-serif;
   font-size: 14px; font-weight: 700;
-  letter-spacing: 0.04em; text-transform: uppercase;
+  letter-spacing: 0.04em; text-transform: none;
   color: #000;
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 .label-sub {
-  font-family: 'Azeret Mono', monospace;
+  font-family: 'Manrope', sans-serif;
   font-size: 9px; color: #444; letter-spacing: 0.04em;
-  text-transform: uppercase; margin-top: 2px;
+  text-transform: none; margin-top: 2px;
 }
 .label-id {
-  font-family: 'Azeret Mono', monospace;
+  font-family: 'Manrope', sans-serif;
   font-size: 9px; color: #888; letter-spacing: 0.04em;
   margin-top: 4px;
 }
@@ -940,24 +940,24 @@ h1, h2, h3 {
 .manifest-brand {
   font-family: 'Barlow Condensed', 'Arial Black', sans-serif;
   font-size: 12px; font-weight: 700;
-  letter-spacing: 0.18em; text-transform: uppercase;
+  letter-spacing: 0.18em; text-transform: none;
   color: #B93A32;
 }
 .manifest-title {
-  font-family: 'Barlow Condensed', sans-serif;
+  font-family: 'Manrope', sans-serif;
   font-size: 28px; font-weight: 700;
-  letter-spacing: 0.04em; text-transform: uppercase;
+  letter-spacing: 0.04em; text-transform: none;
   color: #111;
   margin-top: 4px;
   line-height: 1.1;
 }
 .manifest-sub {
-  font-family: 'Azeret Mono', monospace;
+  font-family: 'Manrope', sans-serif;
   font-size: 12px; color: #444;
   margin-top: 4px;
 }
 .manifest-meta {
-  font-family: 'Azeret Mono', monospace;
+  font-family: 'Manrope', sans-serif;
   font-size: 10px; color: #888;
   margin-top: 4px;
 }
@@ -968,13 +968,13 @@ h1, h2, h3 {
 .manifest-qr svg { width: 100% !important; height: 100% !important; display: block; }
 .manifest-stats {
   display: flex; gap: 18px;
-  font-family: 'Azeret Mono', monospace;
+  font-family: 'Manrope', sans-serif;
   font-size: 12px; color: #444;
-  letter-spacing: 0.04em; text-transform: uppercase;
+  letter-spacing: 0.04em; text-transform: none;
   margin-bottom: 14px;
 }
 .manifest-stat-num {
-  font-family: 'Barlow Condensed', sans-serif;
+  font-family: 'Manrope', sans-serif;
   font-size: 22px; font-weight: 700;
   color: #111;
   margin-right: 6px;
@@ -987,22 +987,22 @@ h1, h2, h3 {
 .manifest-table th {
   text-align: left; background: #f4f4f4;
   padding: 8px 10px; border-bottom: 1px solid #ccc;
-  font-family: 'Azeret Mono', monospace;
+  font-family: 'Manrope', sans-serif;
   font-size: 10px; color: #444;
-  letter-spacing: 0.06em; text-transform: uppercase;
+  letter-spacing: 0.06em; text-transform: none;
 }
 .manifest-table td {
   padding: 8px 10px; border-bottom: 1px solid #eee;
   vertical-align: top;
 }
 .manifest-table .m-item-name {
-  font-family: 'Barlow Condensed', sans-serif;
+  font-family: 'Manrope', sans-serif;
   font-weight: 700;
-  letter-spacing: 0.04em; text-transform: uppercase;
+  letter-spacing: 0.04em; text-transform: none;
 }
 .manifest-foot {
   margin-top: 14px;
-  font-family: 'Azeret Mono', monospace;
+  font-family: 'Manrope', sans-serif;
   font-size: 10px; color: #888;
   border-top: 1px solid #eee; padding-top: 8px;
 }
@@ -1049,13 +1049,13 @@ h1, h2, h3 {
 }
 .back-bar .ev-name {
   flex: 1; overflow: hidden;
-  font-family: 'Barlow Condensed', sans-serif;
+  font-family: 'Manrope', sans-serif;
   font-size: 16px; font-weight: 500;
-  letter-spacing: 0.06em; text-transform: uppercase;
+  letter-spacing: 0.06em; text-transform: none;
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 .back-bar .ev-sub {
-  font-family: 'Azeret Mono', monospace;
+  font-family: 'Manrope', sans-serif;
   font-size: 10px; color: #7A7A7A;
 }
 
@@ -1146,7 +1146,7 @@ h1, h2, h3 {
   .scanner-modal h2 { font-size: 16px; }
   .scanner-frame { aspect-ratio: 4 / 5; }
   .scanner-counter {
-    font-family: 'Barlow Condensed', sans-serif;
+    font-family: 'Manrope', sans-serif;
     font-size: 20px; font-weight: 700;
     padding: 4px 14px;
   }
@@ -1204,9 +1204,9 @@ h1, h2, h3 {
   border-bottom: 1px solid #2a2a2a;
 }
 .scan-landing-bar .brand {
-  font-family: 'Barlow Condensed', sans-serif;
+  font-family: 'Manrope', sans-serif;
   font-weight: 500; letter-spacing: 0.14em; font-size: 15px;
-  text-transform: uppercase; color: #FAFAFA;
+  text-transform: none; color: #FAFAFA;
 }
 .scan-landing-bar .spacer { flex: 1; }
 .scan-landing-body {
@@ -1226,19 +1226,19 @@ h1, h2, h3 {
   padding-bottom: 16px; margin-bottom: 16px;
 }
 .scan-card-kicker {
-  font-family: 'Azeret Mono', monospace;
+  font-family: 'Manrope', sans-serif;
   font-size: 10px; color: #B93A32;
-  letter-spacing: 0.14em; text-transform: uppercase;
+  letter-spacing: 0.14em; text-transform: none;
 }
 .scan-card-title {
-  font-family: 'Barlow Condensed', sans-serif;
+  font-family: 'Manrope', sans-serif;
   font-size: 32px; font-weight: 700;
-  letter-spacing: 0.04em; text-transform: uppercase;
+  letter-spacing: 0.04em; text-transform: none;
   margin: 4px 0 0 0;
   line-height: 1.05;
 }
 .scan-card-sub {
-  font-family: 'Azeret Mono', monospace;
+  font-family: 'Manrope', sans-serif;
   font-size: 12px; color: #7A7A7A; margin-top: 6px;
 }
 .scan-card-status {
@@ -1251,9 +1251,9 @@ h1, h2, h3 {
   font-size: 14px;
 }
 .scan-card-line .k {
-  font-family: 'Azeret Mono', monospace;
+  font-family: 'Manrope', sans-serif;
   font-size: 10px; color: #7A7A7A;
-  letter-spacing: 0.06em; text-transform: uppercase;
+  letter-spacing: 0.06em; text-transform: none;
   min-width: 80px;
 }
 .scan-card-line .v { color: #EFEFEF; }
@@ -1266,12 +1266,12 @@ h1, h2, h3 {
   padding: 48px 16px;
 }
 .scan-error h2 {
-  font-family: 'Barlow Condensed', sans-serif;
-  font-size: 22px; letter-spacing: 0.06em; text-transform: uppercase;
+  font-family: 'Manrope', sans-serif;
+  font-size: 22px; letter-spacing: 0.06em; text-transform: none;
   margin: 0 0 8px 0;
 }
 .scan-error-sub {
-  font-family: 'Azeret Mono', monospace;
+  font-family: 'Manrope', sans-serif;
   font-size: 12px; color: #7A7A7A; margin-bottom: 18px;
 }
 
@@ -1283,13 +1283,13 @@ h1, h2, h3 {
   padding: 10px 12px;
 }
 .scan-item-name {
-  font-family: 'Barlow Condensed', sans-serif;
+  font-family: 'Manrope', sans-serif;
   font-size: 15px; font-weight: 500;
-  letter-spacing: 0.04em; text-transform: uppercase;
+  letter-spacing: 0.04em; text-transform: none;
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 .scan-item-sub {
-  font-family: 'Azeret Mono', monospace;
+  font-family: 'Manrope', sans-serif;
   font-size: 11px; color: #7A7A7A;
   margin-top: 2px;
 }
@@ -1318,14 +1318,14 @@ h1, h2, h3 {
   text-align: center;
 }
 .signin-brand {
-  font-family: 'Barlow Condensed', sans-serif;
+  font-family: 'Manrope', sans-serif;
   font-weight: 500; letter-spacing: 0.18em; font-size: 13px;
-  text-transform: uppercase; color: #B93A32;
+  text-transform: none; color: #B93A32;
 }
 .signin-title {
-  font-family: 'Barlow Condensed', sans-serif;
+  font-family: 'Manrope', sans-serif;
   font-size: 32px; font-weight: 700;
-  letter-spacing: 0.04em; text-transform: uppercase;
+  letter-spacing: 0.04em; text-transform: none;
   margin-top: 6px; color: #FAFAFA;
 }
 .signin-sub {
@@ -1337,7 +1337,93 @@ h1, h2, h3 {
 .signin-cta { width: 100%; padding: 14px; }
 .signin-foot {
   margin-top: 18px;
-  font-family: 'Azeret Mono', monospace;
+  font-family: 'Manrope', sans-serif;
   font-size: 11px; color: #7A7A7A;
   line-height: 1.5;
 }
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   Sortly skin — softer radii, friendlier typography, calmer borders.
+   Kept as a trailing block so the brand foundation above stays untouched.
+   ───────────────────────────────────────────────────────────────────────────── */
+
+/* Card-class surfaces — generous radius, sentence-case labels */
+.item,
+.stat-box,
+.modal,
+.check-row,
+.dash-row,
+.dash-group,
+.team-row,
+.role-legend,
+.history .event,
+.viewer-welcome,
+.empty,
+.auth-tabs,
+.status-banner { border-radius: 14px; }
+
+/* Tabs row — subtle pill inside the topbar area */
+.tabs { gap: 4px; padding: 0 8px; }
+
+/* Inputs — soft pill-ish */
+.controls input,
+.controls select,
+.modal .field input,
+.modal .field select,
+.modal .field textarea,
+.role-select { border-radius: 10px; }
+
+/* Buttons — rounded, friendlier */
+.btn { border-radius: 10px; padding: 10px 18px; font-weight: 600; letter-spacing: 0; }
+.btn.sm { border-radius: 8px; padding: 7px 12px; }
+.btn:hover { border-radius: 12px; }
+.btn.primary:hover { border-radius: 12px; }
+.btn:disabled { border-radius: 10px !important; }
+
+/* Status / category badges — proper pills */
+.badge,
+.quick-cond-pill,
+.role-tag,
+.dash-group-count { border-radius: 999px; padding-left: 10px; padding-right: 10px; }
+
+/* Item list — bigger gap so cards breathe; name reads as a heading, not a label */
+.items { gap: 14px; }
+.item { padding: 16px; gap: 10px; }
+.item .name { font-weight: 700; font-size: 17px; letter-spacing: 0; }
+.item .meta { font-size: 12px; }
+.item .fields .k { font-size: 11px; letter-spacing: 0; font-weight: 600; color: #9a9a9a; }
+.item .fields .v { font-size: 14px; }
+
+/* Dashboard — softer headers, calmer numbers */
+.dash-section-head { font-weight: 700; letter-spacing: 0; font-size: 15px; padding-bottom: 10px; }
+.stat-box { border-radius: 14px; padding: 18px 14px; }
+.stat-box .stat-value { font-weight: 700; letter-spacing: 0; font-size: 34px; }
+.stat-box .stat-label { font-weight: 500; letter-spacing: 0; font-size: 11px; margin-top: 8px; color: #9a9a9a; }
+.dash-row-name { font-weight: 700; letter-spacing: 0; font-size: 15px; }
+.dash-row-sub { font-size: 12px; }
+.dash-group-name { font-weight: 700; letter-spacing: 0; font-size: 16px; }
+
+/* Topbar — drop the wide letter-spacing on the role pill text */
+.role-pill { border-radius: 999px; letter-spacing: 0.04em; }
+
+/* Modal heading + form labels */
+.modal h2 { font-weight: 700; letter-spacing: 0; font-size: 22px; }
+.modal .field label { letter-spacing: 0; font-weight: 600; font-size: 12px; color: #9a9a9a; }
+
+/* Tabs — same softening for the in-page tab strip */
+.tabs button { font-weight: 600; letter-spacing: 0; font-size: 13px; }
+
+/* History events — sentence-case action label */
+.history .event .action { font-weight: 700; letter-spacing: 0; font-size: 15px; }
+
+/* Banners — keep their accent but soften shape */
+.offline-banner,
+.pending-banner { letter-spacing: 0; font-weight: 600; }
+
+/* Empty states — calmer */
+.empty { letter-spacing: 0; }
+.dash-empty.allclear { letter-spacing: 0; font-weight: 600; }
+
+/* CSV preview — drop the all-caps */
+.csv-preview th { letter-spacing: 0; font-weight: 600; }
+
