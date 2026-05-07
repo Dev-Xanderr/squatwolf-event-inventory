@@ -96,6 +96,35 @@ h1, h2, h3 {
 .role-pill.pending::before {
   content: '⏱'; color: #d48a34; margin-right: 6px; font-size: 9px;
 }
+.role-pill.viewer {
+  background: rgba(95, 207, 126, 0.10);
+  color: #5fcf7e;
+  border: 1px solid rgba(95, 207, 126, 0.35);
+}
+.role-pill.viewer::before {
+  content: '◇'; color: #5fcf7e; margin-right: 6px; font-size: 9px;
+}
+
+/* Login prompt — mute styling when used as informational ("ask a master") */
+.login-prompt.no-action {
+  cursor: default;
+  border-style: solid;
+  border-color: #2a2a2a;
+}
+.login-prompt.no-action:hover {
+  color: #888; border-color: #2a2a2a; background: transparent;
+}
+.login-prompt.no-action .login-prompt-dot,
+.login-prompt.no-action:hover .login-prompt-dot { color: #5fcf7e; }
+
+/* Role select inside the manage-team panel */
+.role-select {
+  background: #1a1a1a; border: 1px solid #2a2a2a; color: #FAFAFA;
+  padding: 6px 8px; font-size: 11px;
+  font-family: 'Azeret Mono', monospace; letter-spacing: 0.04em; text-transform: uppercase;
+}
+.role-select:focus { border-color: #B93A32; outline: none; }
+.role-select:disabled { opacity: 0.45; cursor: not-allowed; }
 
 /* Pending banner shown right under the topbar when a user is awaiting approval */
 .pending-banner {
@@ -1019,4 +1048,45 @@ h1, h2, h3 {
   .scan-card         { padding: 18px; }
   .scan-card-title   { font-size: 26px; }
   .scan-card-line .k { min-width: 70px; }
+}
+
+/* ──────────────────────────────────────────────────────────────────────────
+   Sign-in gate — shown to fully-unauthenticated visitors
+   ────────────────────────────────────────────────────────────────────────── */
+.signin-gate {
+  min-height: 100vh;
+  display: flex; align-items: center; justify-content: center;
+  background: #121212;
+  padding: max(24px, env(safe-area-inset-top)) 18px max(24px, env(safe-area-inset-bottom));
+}
+.signin-card {
+  background: #1a1a1a;
+  border: 1px solid #2a2a2a;
+  padding: 32px;
+  max-width: 420px; width: 100%;
+  text-align: center;
+}
+.signin-brand {
+  font-family: 'Barlow Condensed', sans-serif;
+  font-weight: 500; letter-spacing: 0.18em; font-size: 13px;
+  text-transform: uppercase; color: #B93A32;
+}
+.signin-title {
+  font-family: 'Barlow Condensed', sans-serif;
+  font-size: 32px; font-weight: 700;
+  letter-spacing: 0.04em; text-transform: uppercase;
+  margin-top: 6px; color: #FAFAFA;
+}
+.signin-sub {
+  font-family: 'Manrope', sans-serif;
+  font-size: 14px; color: #d0d0d0;
+  margin: 14px 0 22px 0;
+  line-height: 1.45;
+}
+.signin-cta { width: 100%; padding: 14px; }
+.signin-foot {
+  margin-top: 18px;
+  font-family: 'Azeret Mono', monospace;
+  font-size: 11px; color: #7A7A7A;
+  line-height: 1.5;
 }

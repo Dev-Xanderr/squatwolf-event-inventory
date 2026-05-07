@@ -411,7 +411,29 @@ function ScanLanding({ kind, id, onDismiss }) {
 function requestLogin() {
   window.dispatchEvent(new Event('eit:request-login'));
 }
+// Context-aware: if the user is signed in but lacks write access (viewer or
+// pending), tell them to ask a master rather than "log in".
 function LoginPrompt({ verb = 'edit' }) {
+  const [session, setSession] = useState(() => {
+    try { return JSON.parse(localStorage.getItem('eit:session')) || null; } catch { return null; }
+  });
+  useEffect(() => {
+    const fn = () => {
+      try { setSession(JSON.parse(localStorage.getItem('eit:session')) || null); } catch { setSession(null); }
+    };
+    window.addEventListener('storage', fn);
+    return () => window.removeEventListener('storage', fn);
+  }, []);
+  const isSignedIn = !!session;
+  const isAdminLike = session?.role === 'admin' || session?.role === 'master';
+  if (isAdminLike) return null;  // shouldn't render — admins see real buttons
+  if (isSignedIn) {
+    return (
+      <span className="login-prompt no-action" title="Edit access is granted by a master admin">
+        <span className="login-prompt-dot">●</span> Ask a master for edit access
+      </span>
+    );
+  }
   return (
     <button type="button" className="login-prompt" onClick={requestLogin}>
       <span className="login-prompt-dot">●</span> Log in to {verb}
@@ -2391,17 +2413,19 @@ function ManageTeamModal({ me, onClose }) {
   }
 
   async function changeRole(user, newRole) {
-    if (user.user_id === me.id && user.role === 'master' && newRole === 'admin') {
-      // Allow self-demote only if there's another master left
+    // Self-demote out of master is only allowed if another master exists
+    if (user.user_id === me.id && user.role === 'master' && newRole !== 'master') {
       if (masterCount <= 1) {
         setErr("You're the only master — promote someone else first.");
         return;
       }
-      if (!window.confirm("Demote yourself to Admin? You'll lose team management.")) return;
+      if (!window.confirm(`Demote yourself to ${newRole}? You'll lose team management.`)) return;
     } else if (newRole === 'master') {
       if (!window.confirm(`Promote ${user.email} to Master? They'll be able to add and remove other admins.`)) return;
-    } else {
-      if (!window.confirm(`Demote ${user.email} to Admin?`)) return;
+    } else if (newRole === 'admin') {
+      if (!window.confirm(`Set ${user.email} to Admin (full edit access)?`)) return;
+    } else if (newRole === 'viewer') {
+      if (!window.confirm(`Set ${user.email} to Viewer (read-only)?`)) return;
     }
     setBusy({ kind:'role', id:user.user_id }); setErr('');
     const { error } = await sb.from('admin_users').update({ role: newRole }).eq('user_id', user.user_id);
@@ -2443,16 +2467,22 @@ function ManageTeamModal({ me, onClose }) {
                       <div className="team-sub">{req.email} · requested {fmtTime(req.requested_at)}</div>
                     </div>
                     <div style={{display:'flex',gap:6,flexWrap:'wrap'}}>
-                      <button className="btn sm" disabled={busy} onClick={()=>deny(req)}>Deny</button>
-                      <button className="btn sm" disabled={busy} onClick={()=>approve(req,'admin')}>Approve as Admin</button>
-                      <button className="btn sm primary" disabled={busy} onClick={()=>approve(req,'master')}>Approve as Master</button>
+                      <button className="btn sm danger" disabled={busy} onClick={()=>deny(req)}>Deny</button>
+                      <button className="btn sm" disabled={busy} onClick={()=>approve(req,'viewer')}>Approve · Viewer</button>
+                      <button className="btn sm" disabled={busy} onClick={()=>approve(req,'admin')}>Approve · Admin</button>
+                      <button className="btn sm primary" disabled={busy} onClick={()=>approve(req,'master')}>Approve · Master</button>
                     </div>
                   </div>
                 ))}
               </div>
         }
 
-        <div className="section-label">Team members ({admins.length})</div>
+        <div className="section-label">
+          Team members ({admins.length})
+          <span style={{color:'#7A7A7A',fontFamily:"'Azeret Mono',monospace",fontSize:10,letterSpacing:'0.06em',float:'right'}}>
+            {admins.filter(a=>a.role==='master').length}M · {admins.filter(a=>a.role==='admin').length}A · {admins.filter(a=>a.role==='viewer').length}V
+          </span>
+        </div>
         {admins.length === 0
           ? <div className="empty" style={{padding:18}}>No team members yet.</div>
           : <div className="team-list">
@@ -2468,13 +2498,14 @@ function ManageTeamModal({ me, onClose }) {
                       <div className="team-sub">{u.email} · added {fmtTime(u.added_at)}</div>
                     </div>
                     <span className={`role-pill ${u.role}`} style={{marginRight:6}}>{u.role}</span>
-                    <div style={{display:'flex',gap:6,flexWrap:'wrap'}}>
-                      {u.role === 'admin'
-                        ? <button className="btn sm" disabled={busy} onClick={()=>changeRole(u,'master')}>Promote</button>
-                        : <button className="btn sm" disabled={busy || (isMe && masterCount<=1)} onClick={()=>changeRole(u,'admin')}>Demote</button>
-                      }
-                      <button className="btn sm danger" disabled={busy || (u.role==='master' && masterCount<=1)} onClick={()=>remove(u)}>Remove</button>
-                    </div>
+                    <select className="role-select"
+                      value={u.role} disabled={busy || (isMe && u.role==='master' && masterCount<=1)}
+                      onChange={(e)=> e.target.value !== u.role && changeRole(u, e.target.value)}>
+                      <option value="viewer">Viewer</option>
+                      <option value="admin">Admin</option>
+                      <option value="master">Master</option>
+                    </select>
+                    <button className="btn sm danger" disabled={busy || (u.role==='master' && masterCount<=1)} onClick={()=>remove(u)}>Remove</button>
                   </div>
                 );
               })}
@@ -2483,6 +2514,29 @@ function ManageTeamModal({ me, onClose }) {
 
         <div className="actions">
           <button className="btn ghost" onClick={onClose}>Close</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ---------- sign-in gate (shown when no session) ----------
+// With reads now locked behind RLS, an unauth visitor would see an empty
+// "Loading…" forever. Replace it with a focused sign-in card.
+function SignInGate({ onLoginRequest, deepLinkLabel }) {
+  return (
+    <div className="signin-gate">
+      <div className="signin-card">
+        <div className="signin-brand">SQUATWOLF</div>
+        <div className="signin-title">Event Inventory</div>
+        <div className="signin-sub">
+          {deepLinkLabel
+            ? deepLinkLabel
+            : 'Internal tool — sign in with your @squatwolf.com email to continue.'}
+        </div>
+        <button className="btn primary signin-cta" onClick={onLoginRequest}>Sign in / Request access</button>
+        <div className="signin-foot">
+          Anyone with an @squatwolf.com email gets read-only access automatically. Edit access is granted by a master admin.
         </div>
       </div>
     </div>
@@ -2498,6 +2552,7 @@ function App() {
   });
   const admin = session && (session.role === 'admin' || session.role === 'master') ? session : null;
   const isMaster = session?.role === 'master';
+  const isViewer = session?.role === 'viewer';
   const isPending = session && !session.role;
 
   const [tab, setTab]           = useState('dashboard'); // 'dashboard' | 'items' | 'events'
@@ -2509,13 +2564,14 @@ function App() {
 
   // deep-links: ?item=<uuid> or ?event=<uuid>
   // Show a focused ScanLanding card first; only enter the full app when dismissed.
+  // We strip the param immediately so a refresh doesn't keep the landing pinned;
+  // the `landing` state survives the sign-in gate if needed.
   useEffect(() => {
     const params = new URLSearchParams(location.search);
     const itemId  = params.get('item');
     const eventId = params.get('event');
     if (itemId  && parseScanned(itemId))  setLanding({ kind: 'item',  id: parseScanned(itemId)  });
     if (eventId && parseScanned(eventId)) setLanding({ kind: 'event', id: parseScanned(eventId) });
-    // strip the params so a refresh doesn't keep the landing pinned
     if (itemId || eventId) {
       const url = new URL(location.href);
       url.searchParams.delete('item');
@@ -2590,8 +2646,24 @@ function App() {
     sb.auth.signOut(); setSession(null); persistSession(null);
   }
 
+  // No session — show the sign-in gate. If they hit a QR deep-link, mention it.
+  if (!session) {
+    return (
+      <>
+        <SignInGate
+          onLoginRequest={() => setLoginOpen(true)}
+          deepLinkLabel={
+            landing
+              ? `You scanned a ${landing.kind === 'item' ? 'product' : 'deployment'} QR — sign in to view it.`
+              : null
+          }
+        />
+        {loginOpen && <AdminLoginModal onLogin={handleLogin} onClose={()=>setLoginOpen(false)} />}
+      </>
+    );
+  }
+
   // While the scan landing is up, render only that — no tabs, no chrome.
-  // The login modal still works on top so admins can log in from the landing.
   if (landing) {
     return (
       <>
@@ -2607,21 +2679,16 @@ function App() {
       <div className="topbar">
         <span className="brand">SQUATWOLF</span>
         <span className="spacer" />
-        {session
-          ? <div className="topbar-mode">
-              {session.role === 'master' && <span className="role-pill master">Master · {session.name}</span>}
-              {session.role === 'admin'  && <span className="role-pill admin">Admin · {session.name}</span>}
-              {!session.role             && <span className="role-pill pending">Pending · {session.name}</span>}
-              {isMaster && (
-                <button className="btn sm" onClick={()=>setManageOpen(true)} title="Manage team">⚙ Team</button>
-              )}
-              <button className="btn sm ghost" onClick={logout} title="Log out">↺</button>
-            </div>
-          : <div className="topbar-mode">
-              <span className="role-pill guest">View only</span>
-              <button className="btn sm" onClick={()=>setLoginOpen(true)}>Log in</button>
-            </div>
-        }
+        <div className="topbar-mode">
+          {session.role === 'master' && <span className="role-pill master">Master · {session.name}</span>}
+          {session.role === 'admin'  && <span className="role-pill admin">Admin · {session.name}</span>}
+          {session.role === 'viewer' && <span className="role-pill viewer">Viewer · {session.name}</span>}
+          {!session.role             && <span className="role-pill pending">Pending · {session.name}</span>}
+          {isMaster && (
+            <button className="btn sm" onClick={()=>setManageOpen(true)} title="Manage team">⚙ Team</button>
+          )}
+          <button className="btn sm ghost" onClick={logout} title="Log out">↺</button>
+        </div>
       </div>
       {isPending && (
         <div className="pending-banner">
