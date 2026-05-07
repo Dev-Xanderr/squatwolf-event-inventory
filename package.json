@@ -5,7 +5,8 @@
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
-    "dev": "node server.js"
+    "dev": "node server.js",
+    "build:docs": "babel docs/app.js --presets=@babel/preset-react --out-file docs/app.compiled.js --source-maps"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.103.2",
@@ -15,5 +16,11 @@
     "multer": "^2.1.1",
     "socket.io": "^4.8.0",
     "uuid": "^10.0.0"
+  },
+  "devDependencies": {
+    "@babel/cli": "^7.28.6",
+    "@babel/core": "^7.29.0",
+    "@babel/preset-react": "^7.28.5",
+    "serve": "^14.2.6"
   }
 }
