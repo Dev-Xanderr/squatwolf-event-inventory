@@ -5,7 +5,17 @@ const { useState, useEffect, useMemo, useRef } = React;
 const SUPABASE_URL      = 'https://jnqlhfehhqnhqscvwjxp.supabase.co';
 const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImpucWxoZmVoaHFuaHFzY3Z3anhwIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzYzMjU0OTcsImV4cCI6MjA5MTkwMTQ5N30.oBknXVFJZhpaBujHUH1MVW-UbKb_tBPCX6gwY8RYCsE';
 const sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
-  auth: { persistSession: true, autoRefreshToken: true },
+  auth: {
+    persistSession: true,
+    autoRefreshToken: true,
+    // Workaround for supabase-js v2 navigator.locks deadlock: when the auth
+    // token already exists in localStorage on page load, the default lock
+    // (built on navigator.locks) hangs indefinitely waiting for the
+    // initialize call. That blocks getSession() AND every PostgREST query.
+    // Override with a pass-through; we accept the small risk of two tabs
+    // racing a token refresh — supabase-js handles that gracefully.
+    lock: (name, acquireTimeout, fn) => fn(),
+  },
 });
 
 // ---------- constants ----------
