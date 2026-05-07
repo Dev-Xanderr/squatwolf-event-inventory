@@ -55,6 +55,52 @@ h1, h2, h3 {
 .role-tag.editor { background: #B93A32; color: #FAFAFA; }
 .role-tag.viewer { background: #2a2a2a; color: #7A7A7A; }
 
+/* ── Role pill (always-on identity in topbar) ─────────────────────────────── */
+.topbar-mode { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.role-pill {
+  display: inline-flex; align-items: center;
+  padding: 4px 9px;
+  font-family: 'Azeret Mono', monospace;
+  font-size: 10px; font-weight: 700;
+  letter-spacing: 0.08em; text-transform: uppercase;
+  white-space: nowrap;
+  max-width: 200px; overflow: hidden; text-overflow: ellipsis;
+}
+.role-pill.guest {
+  background: #1a1a1a; color: #888; border: 1px solid #2a2a2a;
+}
+.role-pill.guest::before {
+  content: '●'; color: #5a5a5a; margin-right: 6px; font-size: 8px;
+}
+.role-pill.admin {
+  background: rgba(185, 58, 50, 0.12);
+  color: #d44438;
+  border: 1px solid rgba(185, 58, 50, 0.35);
+}
+.role-pill.admin::before {
+  content: '●'; color: #d44438; margin-right: 6px; font-size: 8px;
+}
+@media (max-width: 480px) {
+  .role-pill { max-width: 130px; font-size: 9px; padding: 3px 7px; }
+}
+
+/* ── Inline "log in to edit" prompt ──────────────────────────────────────── */
+.login-prompt {
+  display: inline-flex; align-items: center; gap: 6px;
+  background: transparent;
+  border: 1px dashed #2a2a2a;
+  color: #888;
+  padding: 8px 12px;
+  font-family: 'Azeret Mono', monospace;
+  font-size: 11px;
+  letter-spacing: 0.06em; text-transform: uppercase;
+  cursor: pointer;
+  transition: color 0.15s, border-color 0.15s, background 0.15s;
+}
+.login-prompt:hover { color: #B93A32; border-color: #B93A32; background: rgba(185,58,50,0.06); }
+.login-prompt-dot { color: #5a5a5a; font-size: 8px; }
+.login-prompt:hover .login-prompt-dot { color: #B93A32; }
+
 .link-btn {
   background: none; border: none; color: #B93A32; cursor: pointer;
   font-size: inherit; padding: 0; text-decoration: underline;
@@ -791,4 +837,114 @@ h1, h2, h3 {
 /* Container — tighter side padding on phones so cards don't feel boxed in */
 @media (max-width: 480px) {
   .container { padding: 12px 10px; }
+}
+
+/* ──────────────────────────────────────────────────────────────────────────
+   Scan landing — the focused cold-load you see when you scan a QR
+   ────────────────────────────────────────────────────────────────────────── */
+.scan-landing {
+  min-height: 100vh; display: flex; flex-direction: column;
+  background: #121212;
+}
+.scan-landing-bar {
+  display: flex; align-items: center; gap: 12px;
+  padding: max(12px, env(safe-area-inset-top)) 16px 12px;
+  border-bottom: 1px solid #2a2a2a;
+}
+.scan-landing-bar .brand {
+  font-family: 'Barlow Condensed', sans-serif;
+  font-weight: 500; letter-spacing: 0.14em; font-size: 15px;
+  text-transform: uppercase; color: #FAFAFA;
+}
+.scan-landing-bar .spacer { flex: 1; }
+.scan-landing-body {
+  flex: 1;
+  padding: 18px;
+  max-width: 720px; width: 100%; margin: 0 auto;
+  padding-bottom: max(18px, env(safe-area-inset-bottom));
+}
+.scan-card {
+  background: #1a1a1a;
+  border: 1px solid #2a2a2a;
+  padding: 22px;
+}
+.scan-card-head {
+  display: flex; gap: 12px; align-items: flex-start;
+  border-bottom: 1px solid #2a2a2a;
+  padding-bottom: 16px; margin-bottom: 16px;
+}
+.scan-card-kicker {
+  font-family: 'Azeret Mono', monospace;
+  font-size: 10px; color: #B93A32;
+  letter-spacing: 0.14em; text-transform: uppercase;
+}
+.scan-card-title {
+  font-family: 'Barlow Condensed', sans-serif;
+  font-size: 32px; font-weight: 700;
+  letter-spacing: 0.04em; text-transform: uppercase;
+  margin: 4px 0 0 0;
+  line-height: 1.05;
+}
+.scan-card-sub {
+  font-family: 'Azeret Mono', monospace;
+  font-size: 12px; color: #7A7A7A; margin-top: 6px;
+}
+.scan-card-status {
+  display: flex; flex-direction: column; gap: 6px; margin-bottom: 14px;
+}
+.scan-card-line {
+  display: flex; gap: 12px; align-items: baseline;
+  padding: 6px 0;
+  border-bottom: 1px solid #1f1f1f;
+  font-size: 14px;
+}
+.scan-card-line .k {
+  font-family: 'Azeret Mono', monospace;
+  font-size: 10px; color: #7A7A7A;
+  letter-spacing: 0.06em; text-transform: uppercase;
+  min-width: 80px;
+}
+.scan-card-line .v { color: #EFEFEF; }
+.scan-card-line .v.out    { color: #d48a34; }
+.scan-card-line .v.stored { color: #5fcf7e; }
+.scan-card-line.muted { color: #7A7A7A; padding: 8px 0; }
+
+.scan-error {
+  text-align: center;
+  padding: 48px 16px;
+}
+.scan-error h2 {
+  font-family: 'Barlow Condensed', sans-serif;
+  font-size: 22px; letter-spacing: 0.06em; text-transform: uppercase;
+  margin: 0 0 8px 0;
+}
+.scan-error-sub {
+  font-family: 'Azeret Mono', monospace;
+  font-size: 12px; color: #7A7A7A; margin-bottom: 18px;
+}
+
+/* Deployment listing inside the landing card */
+.scan-item-list { display: flex; flex-direction: column; gap: 6px; }
+.scan-item-row {
+  display: flex; align-items: center; gap: 10px;
+  background: #141414; border: 1px solid #2a2a2a;
+  padding: 10px 12px;
+}
+.scan-item-name {
+  font-family: 'Barlow Condensed', sans-serif;
+  font-size: 15px; font-weight: 500;
+  letter-spacing: 0.04em; text-transform: uppercase;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.scan-item-sub {
+  font-family: 'Azeret Mono', monospace;
+  font-size: 11px; color: #7A7A7A;
+  margin-top: 2px;
+}
+
+@media (max-width: 480px) {
+  .scan-landing-body { padding: 14px; }
+  .scan-card         { padding: 18px; }
+  .scan-card-title   { font-size: 26px; }
+  .scan-card-line .k { min-width: 70px; }
 }

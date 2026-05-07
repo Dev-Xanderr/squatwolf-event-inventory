@@ -245,6 +245,171 @@ function HistoryList({ itemId, eventItemId }) {
   );
 }
 
+// ---------- scan landing ----------
+// Direct deep-link cold-load: when someone scans a QR sticker the very first
+// thing they see is a focused, clean card — no tabs, no list, no flicker.
+function ScanLanding({ kind, id, onDismiss }) {
+  const [item, setItem]   = useState(null);
+  const [event, setEvent] = useState(null);
+  const [eis, setEis]     = useState([]);   // event_items if kind === 'event'
+  const [outAt, setOutAt] = useState(null); // event the item is currently out at
+  const [err, setErr]     = useState('');
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        if (kind === 'item') {
+          const { data, error } = await sb.from('items').select('*').eq('id', id).maybeSingle();
+          if (cancelled) return;
+          if (error) throw error;
+          if (!data) { setErr('Item not found.'); setLoading(false); return; }
+          setItem(data);
+          // is this item currently out somewhere?
+          const { data: o } = await sb.from('event_items')
+            .select('current_location, status, events(id, name, event_date)')
+            .eq('item_id', id).eq('status', 'out').limit(1);
+          if (!cancelled && o && o.length) setOutAt(o[0]);
+        } else {
+          const { data, error } = await sb.from('events').select('*').eq('id', id).maybeSingle();
+          if (cancelled) return;
+          if (error) throw error;
+          if (!data) { setErr('Deployment not found.'); setLoading(false); return; }
+          setEvent(data);
+          const { data: ei } = await sb.from('event_items')
+            .select('*, items(id, name, category, condition, storage_location)')
+            .eq('event_id', id).order('assigned_at');
+          if (!cancelled) setEis(ei || []);
+        }
+      } catch (e) {
+        if (!cancelled) setErr(e.message || String(e));
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [kind, id]);
+
+  return (
+    <div className="scan-landing">
+      <div className="scan-landing-bar">
+        <span className="brand">SQUATWOLF</span>
+        <span className="spacer" />
+        <button className="btn sm ghost" onClick={onDismiss}>Open inventory →</button>
+      </div>
+
+      <div className="scan-landing-body">
+        {loading && <div className="empty">Loading…</div>}
+        {err && !loading && (
+          <div className="scan-error">
+            <h2>Couldn't find that</h2>
+            <div className="scan-error-sub">{err}</div>
+            <button className="btn primary" onClick={onDismiss}>Open inventory</button>
+          </div>
+        )}
+
+        {!loading && !err && kind === 'item' && item && (
+          <div className="scan-card">
+            <div className="scan-card-head">
+              <div style={{flex:1, minWidth:0}}>
+                <div className="scan-card-kicker">Scanned item</div>
+                <h1 className="scan-card-title">{item.name}</h1>
+                <div className="scan-card-sub">{item.category||'—'} · Stored at: {item.storage_location||'—'}</div>
+              </div>
+              <span className={`badge ${item.condition}`}>{CLABEL[item.condition]||item.condition}</span>
+            </div>
+
+            <div className="scan-card-status">
+              {item.condition === 'retired' ? (
+                <div className="scan-card-line muted">This item is retired and out of service.</div>
+              ) : outAt ? (
+                <>
+                  <div className="scan-card-line"><span className="k">Status</span><span className="v out">Out at deployment</span></div>
+                  <div className="scan-card-line"><span className="k">Deployment</span><span className="v">{outAt.events?.name || '—'}</span></div>
+                  <div className="scan-card-line"><span className="k">At</span><span className="v">{outAt.current_location || '—'}</span></div>
+                </>
+              ) : (
+                <div className="scan-card-line"><span className="k">Status</span><span className="v stored">Stored — not on a deployment</span></div>
+              )}
+              {item.notes && <div className="scan-card-line"><span className="k">Notes</span><span className="v">{item.notes}</span></div>}
+            </div>
+
+            <AttachmentStrip itemId={item.id} adminName={null} isAdmin={false} />
+
+            <div className="actions" style={{marginTop:18,justifyContent:'space-between'}}>
+              <LoginPrompt verb="edit" />
+              <button className="btn primary" onClick={onDismiss}>Open in app</button>
+            </div>
+          </div>
+        )}
+
+        {!loading && !err && kind === 'event' && event && (
+          <div className="scan-card">
+            <div className="scan-card-head">
+              <div style={{flex:1, minWidth:0}}>
+                <div className="scan-card-kicker">Deployment</div>
+                <h1 className="scan-card-title">{event.name}</h1>
+                <div className="scan-card-sub">
+                  {fmtDate(event.event_date)}{event.location ? ' · ' + event.location : ''}
+                </div>
+              </div>
+            </div>
+
+            <div className="scan-card-status">
+              <div className="scan-card-line"><span className="k">Total</span><span className="v">{eis.length}</span></div>
+              <div className="scan-card-line"><span className="k">Out</span><span className="v out">{eis.filter(e=>e.status==='out').length}</span></div>
+              <div className="scan-card-line"><span className="k">Returned</span><span className="v stored">{eis.filter(e=>e.status==='returned').length}</span></div>
+            </div>
+
+            <div className="section-label">Items</div>
+            {eis.length === 0
+              ? <div className="empty">No items assigned to this deployment.</div>
+              : <div className="scan-item-list">
+                  {eis.slice(0, 25).map(ei => (
+                    <div key={ei.id} className="scan-item-row">
+                      <div style={{flex:1, minWidth:0}}>
+                        <div className="scan-item-name">{ei.items?.name || '—'}</div>
+                        <div className="scan-item-sub">{ei.current_location || '—'}</div>
+                      </div>
+                      <span className={`badge ${ei.status==='returned'?'status-returned':'status-out'}`}>
+                        {ei.status==='returned'?'Returned':'Out'}
+                      </span>
+                    </div>
+                  ))}
+                  {eis.length > 25 && (
+                    <div className="scan-item-sub" style={{padding:'6px 12px'}}>+ {eis.length - 25} more — open in app to see all</div>
+                  )}
+                </div>
+            }
+
+            <div className="actions" style={{marginTop:18,justifyContent:'space-between'}}>
+              <LoginPrompt verb="manage" />
+              <button className="btn primary" onClick={onDismiss}>Open in app</button>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ---------- inline "log in to edit" prompt ----------
+// Surfaces a low-key call to action wherever admin actions are hidden,
+// so guests aren't left silently wondering why nothing's clickable.
+// Dispatches a custom event the App listens for, so we don't have to
+// prop-drill setLoginOpen through every nested component.
+function requestLogin() {
+  window.dispatchEvent(new Event('eit:request-login'));
+}
+function LoginPrompt({ verb = 'edit' }) {
+  return (
+    <button type="button" className="login-prompt" onClick={requestLogin}>
+      <span className="login-prompt-dot">●</span> Log in to {verb}
+    </button>
+  );
+}
+
 // ---------- QR scanner modal ----------
 function ScannerModal({ onClose, onScan, title }) {
   const videoRef  = useRef(null);
@@ -815,7 +980,9 @@ function ItemDetailModal({ item, admin, onClose, onEdit }) {
 
         <div className="actions" style={{marginTop:14}}>
           <button className="btn" onClick={()=>setShowQr(s => !s)}>{showQr ? 'Hide QR' : 'Show QR'}</button>
-          {admin && <button className="btn primary" onClick={onEdit}>Edit item</button>}
+          {admin
+            ? <button className="btn primary" onClick={onEdit}>Edit item</button>
+            : <LoginPrompt verb="edit" />}
           <button className="btn ghost" onClick={onClose}>Close</button>
         </div>
       </div>
@@ -1501,6 +1668,7 @@ function EventDetail({ event, admin, onBack }) {
           <button className="btn sm" onClick={()=>setBulkOpen(true)} title="Return all out items">↩ Return all</button>
         )}
         {admin && <button className="btn sm primary" onClick={()=>setAssignOpen(true)}>+ Assign</button>}
+        {!admin && <LoginPrompt verb="manage" />}
       </div>
       {scanMsg && (
         <div style={{margin:'8px 14px 0',padding:'8px 12px',background:'#1a1a1a',border:'1px solid #2a2a2a',
@@ -1723,6 +1891,7 @@ function ItemsTab({ admin, openItemId, onOpened }) {
         {admin && (
           <button className="btn" onClick={()=>setImport(true)} title="Bulk add from CSV">↑ Import</button>
         )}
+        {!admin && <LoginPrompt verb="add or edit items" />}
       </div>
       {scanErr && <div className="err" style={{marginBottom:8}}>{scanErr}</div>}
 
@@ -2027,11 +2196,11 @@ function EventsTab({ admin, openEventId, onOpened }) {
 
   return (
     <div className="container">
-      {admin && (
-        <div style={{marginBottom:12}}>
-          <button className="btn primary" onClick={()=>setNewOpen(true)}>+ New deployment</button>
-        </div>
-      )}
+      <div style={{marginBottom:12, display:'flex', gap:8, alignItems:'center'}}>
+        {admin
+          ? <button className="btn primary" onClick={()=>setNewOpen(true)}>+ New deployment</button>
+          : <LoginPrompt verb="create deployments" />}
+      </div>
       {events.length === 0 ? (
         <div className="empty">
           {admin ? <>No deployments yet. <button className="link-btn" onClick={()=>setNewOpen(true)}>Create one →</button></>
@@ -2068,27 +2237,31 @@ function App() {
   const [loginOpen, setLoginOpen] = useState(false);
   const [openItemId, setOpenItemId]   = useState(null);
   const [openEventId, setOpenEventId] = useState(null);
+  const [landing, setLanding]         = useState(null);  // { kind: 'item'|'event', id } | null
 
   // deep-links: ?item=<uuid> or ?event=<uuid>
+  // Show a focused ScanLanding card first; only enter the full app when dismissed.
   useEffect(() => {
     const params = new URLSearchParams(location.search);
     const itemId  = params.get('item');
     const eventId = params.get('event');
-    const url = new URL(location.href);
-    if (itemId && parseScanned(itemId)) {
-      setTab('items');
-      setOpenItemId(parseScanned(itemId));
-      url.searchParams.delete('item');
-    }
-    if (eventId && parseScanned(eventId)) {
-      setTab('events');
-      setOpenEventId(parseScanned(eventId));
-      url.searchParams.delete('event');
-    }
+    if (itemId  && parseScanned(itemId))  setLanding({ kind: 'item',  id: parseScanned(itemId)  });
+    if (eventId && parseScanned(eventId)) setLanding({ kind: 'event', id: parseScanned(eventId) });
+    // strip the params so a refresh doesn't keep the landing pinned
     if (itemId || eventId) {
+      const url = new URL(location.href);
+      url.searchParams.delete('item');
+      url.searchParams.delete('event');
       window.history.replaceState({}, '', url.toString());
     }
   }, []);
+
+  function dismissLanding() {
+    if (!landing) return;
+    if (landing.kind === 'item')  { setTab('items');  setOpenItemId(landing.id); }
+    if (landing.kind === 'event') { setTab('events'); setOpenEventId(landing.id); }
+    setLanding(null);
+  }
 
   useEffect(() => {
     sb.auth.getSession().then(({ data: { session } }) => {
@@ -2097,6 +2270,13 @@ function App() {
     sb.auth.onAuthStateChange((_, session) => {
       if (!session) { setAdmin(null); localStorage.removeItem('eit:admin'); }
     });
+  }, []);
+
+  // global "log in" request from inline prompts
+  useEffect(() => {
+    const fn = () => setLoginOpen(true);
+    window.addEventListener('eit:request-login', fn);
+    return () => window.removeEventListener('eit:request-login', fn);
   }, []);
 
   function handleLogin(data) {
@@ -2108,6 +2288,17 @@ function App() {
     sb.auth.signOut(); setAdmin(null); localStorage.removeItem('eit:admin');
   }
 
+  // While the scan landing is up, render only that — no tabs, no chrome.
+  // The login modal still works on top so admins can log in from the landing.
+  if (landing) {
+    return (
+      <>
+        <ScanLanding kind={landing.kind} id={landing.id} onDismiss={dismissLanding} />
+        {loginOpen && <AdminLoginModal onLogin={handleLogin} onClose={()=>setLoginOpen(false)} />}
+      </>
+    );
+  }
+
   return (
     <div className="app">
       {/* top bar */}
@@ -2115,11 +2306,14 @@ function App() {
         <span className="brand">SQUATWOLF</span>
         <span className="spacer" />
         {admin
-          ? <div style={{display:'flex',alignItems:'center',gap:8}}>
-              <span style={{fontFamily:"'Azeret Mono',monospace",fontSize:11,color:'#B93A32',letterSpacing:'0.04em',textTransform:'uppercase'}}>{admin.name}</span>
+          ? <div className="topbar-mode">
+              <span className="role-pill admin">Admin · {admin.name}</span>
               <button className="btn sm ghost" onClick={logout} title="Log out">↺</button>
             </div>
-          : <button className="btn sm" onClick={()=>setLoginOpen(true)}>Admin Login</button>
+          : <div className="topbar-mode">
+              <span className="role-pill guest">View only</span>
+              <button className="btn sm" onClick={()=>setLoginOpen(true)}>Log in</button>
+            </div>
         }
       </div>
 
