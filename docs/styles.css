@@ -126,6 +126,37 @@ h1, h2, h3 {
 .role-select:focus { border-color: #B93A32; outline: none; }
 .role-select:disabled { opacity: 0.45; cursor: not-allowed; }
 
+/* Viewer welcome banner — one-time onboarding for new viewer accounts */
+.viewer-welcome {
+  background: rgba(95, 207, 126, 0.08);
+  border-bottom: 1px solid rgba(95, 207, 126, 0.3);
+  padding: 10px 14px;
+  display: flex; align-items: flex-start; gap: 10px;
+}
+.viewer-welcome-body {
+  flex: 1; min-width: 0;
+  font-family: 'Manrope', sans-serif; font-size: 13px;
+  color: #d0d0d0; line-height: 1.5;
+}
+.viewer-welcome-body strong { color: #5fcf7e; }
+.viewer-welcome-x {
+  background: transparent; border: none; color: #7A7A7A;
+  font-size: 14px; cursor: pointer; padding: 4px 8px;
+}
+.viewer-welcome-x:hover { color: #FAFAFA; }
+
+/* Offline banner — sits between topbar and content when no connection */
+.offline-banner {
+  background: rgba(232, 112, 112, 0.10);
+  border-bottom: 1px solid rgba(232, 112, 112, 0.4);
+  color: #e87070;
+  font-family: 'Azeret Mono', monospace;
+  font-size: 12px;
+  letter-spacing: 0.04em;
+  padding: 8px 14px;
+  text-align: center;
+}
+
 /* Pending banner shown right under the topbar when a user is awaiting approval */
 .pending-banner {
   background: rgba(212, 138, 52, 0.10);
@@ -160,6 +191,18 @@ h1, h2, h3 {
   background: #B93A32;
   color: #FAFAFA;
 }
+
+/* Role legend at top of Manage team modal */
+.role-legend {
+  display: flex; flex-direction: column; gap: 6px;
+  margin-bottom: 14px; padding: 10px 12px;
+  background: #141414; border: 1px solid #2a2a2a;
+}
+.role-legend > div {
+  display: flex; align-items: center; gap: 10px;
+  font-family: 'Azeret Mono', monospace; font-size: 11px; color: #d0d0d0;
+}
+.role-legend .role-pill { min-width: 70px; justify-content: center; }
 
 /* Manage team list */
 .team-list { display: flex; flex-direction: column; gap: 6px; margin-bottom: 14px; }
@@ -347,6 +390,40 @@ h1, h2, h3 {
 .check-row.flagged { border-color: #4a3a10; }
 .check-row.flagged.selected { border-color: #B93A32; }
 
+/* ── Quick condition pills (one-tap mid-event change) ─────────────────────── */
+.quick-cond {
+  display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
+  margin-top: 4px;
+}
+.quick-cond-label {
+  font-family: 'Azeret Mono', monospace;
+  font-size: 9px; color: #5a5a5a;
+  letter-spacing: 0.08em; text-transform: uppercase;
+  margin-right: 4px;
+}
+.quick-cond-pill {
+  background: transparent;
+  border: 1px solid #2a2a2a;
+  color: #888;
+  padding: 3px 9px;
+  font-family: 'Azeret Mono', monospace;
+  font-size: 10px; font-weight: 700;
+  letter-spacing: 0.06em; text-transform: uppercase;
+  cursor: pointer;
+  transition: border-color 0.15s, color 0.15s, background 0.15s;
+}
+.quick-cond-pill:hover:not(:disabled) {
+  color: #FAFAFA; border-color: #B93A32;
+}
+.quick-cond-pill.selected, .quick-cond-pill:disabled.selected {
+  cursor: default; opacity: 1;
+}
+.quick-cond-pill.selected.good           { background: rgba(95,207,126,0.15); border-color: #5fcf7e; color: #5fcf7e; }
+.quick-cond-pill.selected.needs_cleaning { background: rgba(90,175,212,0.15); border-color: #5aafd4; color: #5aafd4; }
+.quick-cond-pill.selected.needs_repair   { background: rgba(212,165,52,0.15);  border-color: #d4a534; color: #d4a534; }
+.quick-cond-pill.selected.damaged        { background: rgba(232,112,112,0.15); border-color: #e87070; color: #e87070; }
+.quick-cond-pill:disabled:not(.selected) { opacity: 0.4; cursor: not-allowed; }
+
 /* ── CSV import preview table ────────────────────────────────────────────── */
 .csv-preview {
   width: 100%; border-collapse: collapse;
@@ -501,6 +578,7 @@ h1, h2, h3 {
 .modal .field input:focus,
 .modal .field select:focus,
 .modal .field textarea:focus { border-color: #B93A32; }
+.modal .field input.input-warn { border-color: #d48a34; }
 
 .modal .actions {
   display: flex; gap: 8px; justify-content: flex-end;
@@ -628,6 +706,30 @@ h1, h2, h3 {
   z-index: 50;
   box-shadow: 0 8px 30px rgba(0,0,0,0.5);
 }
+/* Toast host — bottom-center stack */
+.toast-host {
+  position: fixed; left: 50%; bottom: max(20px, env(safe-area-inset-bottom));
+  transform: translateX(-50%);
+  display: flex; flex-direction: column; gap: 8px; align-items: center;
+  z-index: 60; max-width: 92vw;
+  pointer-events: none;
+}
+.toast-item {
+  pointer-events: auto;
+  background: #1a1a1a; border: 1px solid #2a2a2a;
+  padding: 10px 16px; max-width: 480px;
+  font-family: 'Azeret Mono', monospace; font-size: 12px;
+  letter-spacing: 0.04em;
+  color: #FAFAFA;
+  box-shadow: 0 8px 30px rgba(0,0,0,0.5);
+  animation: toast-in 180ms ease-out;
+}
+.toast-item.err { background: #2b0d0d; border-color: #5a2222; color: #ffaaaa; }
+.toast-item.ok  { background: #0d2b17; border-color: #1a4a28; color: #5fcf7e; }
+@keyframes toast-in {
+  from { opacity: 0; transform: translateY(10px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
 
 /* ── Section label ───────────────────────────────────────────────────────── */
 .section-label {
@@ -653,6 +755,44 @@ h1, h2, h3 {
   border: 2px solid rgba(185, 58, 50, 0.85);
   box-shadow: 0 0 0 9999px rgba(0,0,0,0.35);
 }
+/* Scanner: green flash overlay on successful scan */
+.scanner-frame.flash::after {
+  content: ''; position: absolute; inset: 0; pointer-events: none;
+  background: rgba(95, 207, 126, 0.35);
+  animation: scanflash 220ms ease-out;
+}
+@keyframes scanflash {
+  0%   { opacity: 0; }
+  20%  { opacity: 1; }
+  100% { opacity: 0; }
+}
+/* Counter pill in the scanner header — running tally */
+.scanner-counter {
+  display: inline-flex; align-items: center;
+  background: #B93A32; color: #FAFAFA;
+  padding: 3px 10px;
+  font-family: 'Azeret Mono', monospace;
+  font-size: 12px; font-weight: 700; letter-spacing: 0.06em;
+  min-width: 28px; justify-content: center;
+}
+/* Toast that appears under the camera frame after each scan */
+.scanner-toast {
+  display: flex; align-items: center; gap: 10px;
+  margin-top: 10px;
+  padding: 10px 12px;
+  font-family: 'Azeret Mono', monospace; font-size: 12px;
+  border: 1px solid;
+}
+.scanner-toast.ok      { background: rgba(95,207,126,0.10); border-color: rgba(95,207,126,0.4); color: #5fcf7e; }
+.scanner-toast.err     { background: rgba(232,112,112,0.10); border-color: rgba(232,112,112,0.4); color: #e87070; }
+.scanner-toast.undone  { background: #1a1a1a; border-color: #2a2a2a; color: #888; }
+.scanner-undo {
+  background: transparent; border: 1px solid currentColor; color: inherit;
+  padding: 4px 10px; font-family: 'Azeret Mono', monospace;
+  font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase;
+  cursor: pointer;
+}
+.scanner-undo:hover { background: rgba(255,255,255,0.06); }
 
 /* ── Label sheet (printable) ────────────────────────────────────────────── */
 .label-modal { max-width: 760px; }

@@ -119,6 +119,117 @@ function downloadFile(filename, content, mime = 'text/csv;charset=utf-8') {
   setTimeout(() => { URL.revokeObjectURL(url); a.remove(); }, 0);
 }
 
+// ---------- toast / error reporting ----------
+// Lightweight pub-sub so any component can fire a toast without prop-drilling.
+function toast(msg, kind = 'info') {
+  window.dispatchEvent(new CustomEvent('eit:toast', { detail: { msg, kind } }));
+}
+// Translate raw Supabase / Postgres errors into something a human at a venue
+// can act on. Codes we know about today, fall back to message otherwise.
+function friendlyError(err) {
+  if (!err) return '';
+  const code = err.code || err?.error_code;
+  const msg  = err.message || String(err);
+  if (code === '42501' || /row-level security/i.test(msg))
+    return 'Your access changed. Refresh the page or sign in again.';
+  if (code === '23505' || /duplicate key/i.test(msg))
+    return 'That already exists.';
+  if (code === '23503' || /foreign key/i.test(msg))
+    return 'Linked to other records — remove those first.';
+  if (/Sign-up restricted/i.test(msg))
+    return 'Sign-up is restricted to @squatwolf.com email addresses.';
+  if (/Failed to fetch|NetworkError|networkError/i.test(msg))
+    return 'No connection — check your wifi and try again.';
+  return msg;
+}
+// Wrap a promise: on resolve, return the value; on reject (or {error}), fire a toast.
+async function reportable(promise, contextLabel) {
+  try {
+    const r = await promise;
+    if (r && r.error) {
+      toast(`${contextLabel || 'Action failed'}: ${friendlyError(r.error)}`, 'err');
+      return r;
+    }
+    return r;
+  } catch (e) {
+    toast(`${contextLabel || 'Action failed'}: ${friendlyError(e)}`, 'err');
+    throw e;
+  }
+}
+
+// Hook: while `busy` is true, warn before unload + intercept backdrop close.
+// Returns a `safeClose` that no-ops while busy, and a `backdropProps` to spread.
+function useUnloadGuard(busy, onClose) {
+  useEffect(() => {
+    if (!busy) return;
+    const fn = (e) => { e.preventDefault(); e.returnValue = ''; };
+    window.addEventListener('beforeunload', fn);
+    return () => window.removeEventListener('beforeunload', fn);
+  }, [busy]);
+  const safeClose = () => { if (!busy) onClose?.(); };
+  return { safeClose };
+}
+
+// ---------- imperative confirm ----------
+// Replaces window.confirm. Use:
+//   if (!await confirm({ title, body, danger:true })) return;
+// Brand-consistent and works inside iOS PWAs (where window.confirm misbehaves).
+let _confirmHandler = null;
+function confirm(opts) {
+  return new Promise((resolve) => {
+    if (!_confirmHandler) { resolve(window.confirm(opts.body || opts.title || 'Are you sure?')); return; }
+    _confirmHandler({ ...opts, resolve });
+  });
+}
+function ConfirmHost() {
+  const [opts, setOpts] = useState(null);
+  useEffect(() => {
+    _confirmHandler = (o) => setOpts(o);
+    return () => { _confirmHandler = null; };
+  }, []);
+  if (!opts) return null;
+  function answer(v) { opts.resolve(v); setOpts(null); }
+  return (
+    <div className="backdrop" onClick={()=>answer(false)} style={{zIndex:80}}>
+      <div className="modal" onClick={e=>e.stopPropagation()} style={{maxWidth:380}}>
+        <h2>{opts.title || 'Are you sure?'}</h2>
+        <div style={{fontFamily:"'Manrope',sans-serif",fontSize:14,color:'#EFEFEF',marginBottom:14,lineHeight:1.45}}>
+          {opts.body}
+        </div>
+        <div className="actions">
+          <button type="button" className="btn ghost" onClick={()=>answer(false)}>{opts.cancelLabel || 'Cancel'}</button>
+          <button type="button" className={`btn ${opts.danger ? 'danger' : 'primary'}`}
+            onClick={()=>answer(true)}>{opts.confirmLabel || (opts.danger ? 'Yes, do it' : 'Confirm')}</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ToastHost() {
+  const [items, setItems] = useState([]);
+  useEffect(() => {
+    const fn = (e) => {
+      const id = Math.random().toString(36).slice(2);
+      const next = { id, msg: e.detail.msg, kind: e.detail.kind || 'info' };
+      setItems(prev => [...prev, next]);
+      setTimeout(() => setItems(prev => prev.filter(t => t.id !== id)), next.kind === 'err' ? 6000 : 3500);
+    };
+    window.addEventListener('eit:toast', fn);
+    return () => window.removeEventListener('eit:toast', fn);
+  }, []);
+  if (items.length === 0) return null;
+  return (
+    <div className="toast-host">
+      {items.map(t => (
+        <div key={t.id} className={`toast-item ${t.kind}`}>
+          {t.msg}
+        </div>
+      ))}
+    </div>
+  );
+}
+
 // ---------- lightbox ----------
 function Lightbox({ att, onClose }) {
   useEffect(() => {
@@ -163,7 +274,7 @@ function AttachmentStrip({ itemId, eventItemId, adminName, isAdmin }) {
       const ext  = f.name.split('.').pop().toLowerCase();
       const path = `${itemId}/${eventItemId||'master'}/${Date.now()}.${ext}`;
       const { error: upErr } = await sb.storage.from('attachments').upload(path, f, { contentType: f.type });
-      if (upErr) { setErr(upErr.message); continue; }
+      if (upErr) { setErr(friendlyError(upErr)); continue; }
       const { data: { publicUrl } } = sb.storage.from('attachments').getPublicUrl(path);
       const row = { item_id: itemId, storage_path: path, original_name: f.name,
         mime_type: f.type, size: f.size, url: publicUrl,
@@ -176,7 +287,7 @@ function AttachmentStrip({ itemId, eventItemId, adminName, isAdmin }) {
   }
 
   async function remove(att) {
-    if (!window.confirm(`Remove "${att.original_name}"?`)) return;
+    if (!await confirm({ title: 'Remove photo?', body: `Remove "${att.original_name}"?`, danger: true, confirmLabel: 'Remove' })) return;
     await sb.storage.from('attachments').remove([att.storage_path]);
     await sb.from('attachments').delete().eq('id', att.id);
     setAtts(prev => prev.filter(a => a.id !== att.id));
@@ -292,7 +403,7 @@ function ScanLanding({ kind, id, onDismiss }) {
           if (!cancelled) setEis(ei || []);
         }
       } catch (e) {
-        if (!cancelled) setErr(e.message || String(e));
+        if (!cancelled) setErr(friendlyError(e));
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -305,7 +416,6 @@ function ScanLanding({ kind, id, onDismiss }) {
       <div className="scan-landing-bar">
         <span className="brand">SQUATWOLF</span>
         <span className="spacer" />
-        <button className="btn sm ghost" onClick={onDismiss}>Open inventory →</button>
       </div>
 
       <div className="scan-landing-body">
@@ -442,13 +552,39 @@ function LoginPrompt({ verb = 'edit' }) {
 }
 
 // ---------- QR scanner modal ----------
-function ScannerModal({ onClose, onScan, title }) {
+// Two modes:
+//   single (default) — scan once, fire onScan, close.
+//   continuous       — stay open after each scan; parent shows running counter,
+//                      last-scan toast with Undo, and explicit "Done" to close.
+//
+// Always also supports a manual-code entry fallback for cameras that don't work.
+function playBeep() {
+  try {
+    const Ctx = window.AudioContext || window.webkitAudioContext;
+    if (!Ctx) return;
+    const ctx = new Ctx();
+    const o = ctx.createOscillator();
+    const g = ctx.createGain();
+    o.frequency.value = 880;
+    o.type = 'sine';
+    g.gain.value = 0.06;
+    o.connect(g); g.connect(ctx.destination);
+    o.start();
+    setTimeout(() => { o.stop(); ctx.close(); }, 90);
+  } catch { /* silent */ }
+  try { navigator.vibrate?.(35); } catch { /* silent */ }
+}
+
+function ScannerModal({ onClose, onScan, title, mode = 'single', counter, lastScan, onUndoLast }) {
   const videoRef  = useRef(null);
   const canvasRef = useRef(null);
   const streamRef = useRef(null);
   const rafRef    = useRef(null);
   const lockRef   = useRef(false);
-  const [err, setErr] = useState('');
+  const [err, setErr]         = useState('');
+  const [flash, setFlash]     = useState(false);
+  const [manualOpen, setMan]  = useState(false);
+  const [manualVal, setManVal]= useState('');
 
   useEffect(() => {
     let cancelled = false;
@@ -469,8 +605,8 @@ function ScannerModal({ onClose, onScan, title }) {
         const c = canvasRef.current;
         const ctx = c.getContext('2d', { willReadFrequently: true });
         const tick = () => {
-          if (cancelled || lockRef.current) return;
-          if (v.readyState === 4 && v.videoWidth) {
+          if (cancelled) return;
+          if (!lockRef.current && v.readyState === 4 && v.videoWidth) {
             c.width  = v.videoWidth;
             c.height = v.videoHeight;
             ctx.drawImage(v, 0, 0, c.width, c.height);
@@ -480,8 +616,17 @@ function ScannerModal({ onClose, onScan, title }) {
               const id = parseScanned(code.data);
               if (id) {
                 lockRef.current = true;
-                onScan(id);
-                return;
+                playBeep();
+                setFlash(true);
+                setTimeout(() => setFlash(false), 220);
+                Promise.resolve(onScan(id)).finally(() => {
+                  if (mode === 'continuous') {
+                    // 700ms cooldown so we don't re-scan the same code that's
+                    // still in frame
+                    setTimeout(() => { lockRef.current = false; }, 700);
+                  }
+                });
+                if (mode === 'single') return;
               }
             }
           }
@@ -490,7 +635,7 @@ function ScannerModal({ onClose, onScan, title }) {
         rafRef.current = requestAnimationFrame(tick);
       } catch (e) {
         setErr(e.name === 'NotAllowedError'
-          ? 'Camera permission denied. Allow camera access and try again.'
+          ? 'Camera permission denied. Allow camera access in your browser, or use Type code below.'
           : 'Camera unavailable: ' + (e.message || e.name));
       }
     }
@@ -502,23 +647,72 @@ function ScannerModal({ onClose, onScan, title }) {
     };
   }, []);
 
+  function submitManual(e) {
+    e.preventDefault();
+    const id = parseScanned(manualVal);
+    if (!id) { setErr('Not a valid code.'); return; }
+    setErr('');
+    setManVal('');
+    playBeep();
+    setFlash(true);
+    setTimeout(() => setFlash(false), 220);
+    Promise.resolve(onScan(id)).finally(() => {
+      if (mode === 'single') onClose();
+    });
+  }
+
   return (
     <div className="backdrop" onClick={onClose}>
       <div className="modal scanner-modal" onClick={e => e.stopPropagation()}>
-        <h2>{title || 'Scan QR'}</h2>
-        <div className="scanner-frame">
+        <h2 style={{margin:0,marginBottom:12,display:'flex',alignItems:'center',gap:10}}>
+          <span style={{flex:1}}>{title || 'Scan QR'}</span>
+          {mode === 'continuous' && counter != null && (
+            <span className="scanner-counter">{counter}</span>
+          )}
+        </h2>
+        <div className={`scanner-frame${flash ? ' flash' : ''}`}>
           <video ref={videoRef} muted playsInline />
           <canvas ref={canvasRef} style={{display:'none'}} />
           <div className="scanner-reticle" />
         </div>
+
+        {lastScan && mode === 'continuous' && (
+          <div className={`scanner-toast ${lastScan.kind || 'ok'}`}>
+            <span style={{flex:1, minWidth:0, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap'}}>
+              {lastScan.label}
+            </span>
+            {onUndoLast && lastScan.canUndo && (
+              <button type="button" className="scanner-undo" onClick={onUndoLast}>Undo</button>
+            )}
+          </div>
+        )}
+
         {err
           ? <div className="err" style={{marginTop:10}}>{err}</div>
           : <div style={{fontFamily:"'Azeret Mono',monospace",fontSize:11,color:'#7A7A7A',marginTop:10,letterSpacing:'0.04em',textTransform:'uppercase'}}>
-              Point camera at item label
+              {mode === 'continuous' ? 'Keep scanning — modal stays open' : 'Point camera at item label'}
             </div>
         }
+
+        {!manualOpen && (
+          <div style={{marginTop:8}}>
+            <button type="button" className="link-btn" onClick={()=>setMan(true)}>Type code manually instead</button>
+          </div>
+        )}
+        {manualOpen && (
+          <form onSubmit={submitManual} style={{marginTop:10,display:'flex',gap:6}}>
+            <input value={manualVal} onChange={e=>setManVal(e.target.value)}
+              placeholder="Paste code or full URL"
+              style={{flex:1,background:'#1a1a1a',border:'1px solid #2a2a2a',color:'#FAFAFA',padding:'10px 12px',fontFamily:"'Azeret Mono',monospace",fontSize:12}}
+              autoFocus />
+            <button type="submit" className="btn primary sm">Submit</button>
+          </form>
+        )}
+
         <div className="actions">
-          <button type="button" className="btn ghost" onClick={onClose}>Cancel</button>
+          <button type="button" className="btn ghost" onClick={onClose}>
+            {mode === 'continuous' ? 'Done' : 'Cancel'}
+          </button>
         </div>
       </div>
     </div>
@@ -528,11 +722,13 @@ function ScannerModal({ onClose, onScan, title }) {
 // ---------- CSV import modal ----------
 function CsvImportModal({ admin, existingItems, onClose, onImported }) {
   const [text, setText]         = useState('');
-  const [parsed, setParsed]     = useState(null);   // { headers, rows: [{raw, mapped, status, reason}] }
+  const [parsed, setParsed]     = useState(null);
   const [confirming, setConfirming] = useState(false);
   const [saving, setSaving]     = useState(false);
   const [progress, setProgress] = useState({ done: 0, total: 0 });
   const [err, setErr]           = useState('');
+
+  const { safeClose } = useUnloadGuard(saving, onClose);
 
   const VALID_COND = new Set(['good','needs_cleaning','needs_repair','damaged','retired']);
   const existingNames = new Map(); // lowercased name → existing item
@@ -631,7 +827,7 @@ function CsvImportModal({ admin, existingItems, onClose, onImported }) {
       }
       onImported(); onClose();
     } catch (e) {
-      setErr(e.message || String(e));
+      setErr(friendlyError(e));
       setSaving(false);
     }
   }
@@ -640,7 +836,7 @@ function CsvImportModal({ admin, existingItems, onClose, onImported }) {
   const skipCount = parsed?.rows.filter((r) => r.status === 'skip').length || 0;
 
   return (
-    <div className="backdrop" onClick={onClose}>
+    <div className="backdrop" onClick={safeClose}>
       <div className="modal" onClick={(e) => e.stopPropagation()} style={{maxWidth:760}}>
         <h2>Import items from CSV</h2>
 
@@ -777,13 +973,14 @@ function LabelSheet({ items, onClose }) {
 
 // ---------- admin login / request access ----------
 function AdminLoginModal({ onLogin, onClose }) {
-  const [mode, setMode] = useState('signin'); // 'signin' | 'request'
+  const [mode, setMode] = useState('signin'); // 'signin' | 'request' | 'sent'
   const [email, setEmail]       = useState('');
   const [password, setPassword] = useState('');
   const [name, setName]         = useState('');
   const [err, setErr]           = useState('');
   const [info, setInfo]         = useState('');
   const [loading, setLoading]   = useState(false);
+  const [sentEmail, setSentEmail] = useState('');
 
   async function signIn(e) {
     e.preventDefault(); setErr(''); setInfo(''); setLoading(true);
@@ -794,7 +991,7 @@ function AdminLoginModal({ onLogin, onClose }) {
     if (error) {
       setErr(error.message === 'Invalid login credentials'
         ? 'Email or password is incorrect.'
-        : error.message);
+        : friendlyError(error));
       setLoading(false);
       return;
     }
@@ -822,10 +1019,11 @@ function AdminLoginModal({ onLogin, onClose }) {
       password,
       options: { data: { name: name.trim() } },
     });
-    if (error) { setErr(error.message); setLoading(false); return; }
+    if (error) { setErr(friendlyError(error)); setLoading(false); return; }
     // If email confirmation is required, session is null until they confirm.
     if (!data.session) {
-      setInfo('Account created. Check your email for a confirmation link, then sign in. Once confirmed, a master admin will approve your access.');
+      setSentEmail(trimmedEmail);
+      setMode('sent');
       setLoading(false);
       return;
     }
@@ -845,8 +1043,37 @@ function AdminLoginModal({ onLogin, onClose }) {
     const { error } = await sb.auth.resetPasswordForEmail(email.trim().toLowerCase(), {
       redirectTo: location.origin + location.pathname,
     });
-    if (error) { setErr(error.message); return; }
+    if (error) { setErr(friendlyError(error)); return; }
     setInfo('Password reset email sent. Check your inbox.');
+  }
+
+  // Inline @squatwolf.com domain validation for the Sign-up tab (3.6).
+  // Empty field = no warning; once they've typed an @ we evaluate.
+  const emailLooksWrong = mode === 'request'
+    && email.includes('@')
+    && !email.trim().toLowerCase().endsWith('@squatwolf.com');
+  const submitDisabled = loading || (mode === 'request' && (!email.trim() || !email.trim().toLowerCase().endsWith('@squatwolf.com') || !name.trim() || password.length < 8));
+
+  if (mode === 'sent') {
+    return (
+      <div className="backdrop" onClick={onClose}>
+        <div className="modal" style={{maxWidth:400}} onClick={e=>e.stopPropagation()}>
+          <h2>Check your email</h2>
+          <div style={{fontFamily:"'Manrope',sans-serif",fontSize:14,color:'#EFEFEF',lineHeight:1.5,marginBottom:14}}>
+            We sent a confirmation link to <strong>{sentEmail}</strong>. Click it to activate your account, then come back and sign in.
+          </div>
+          <div style={{fontFamily:"'Azeret Mono',monospace",fontSize:11,color:'#7A7A7A',marginBottom:18,letterSpacing:'0.04em'}}>
+            Can't find it? Check your spam folder.
+          </div>
+          <div className="actions">
+            <button type="button" className="btn ghost" onClick={onClose}>Close</button>
+            <button type="button" className="btn primary" onClick={()=>{setMode('signin'); setErr(''); setInfo(''); setPassword('');}}>
+              Back to sign in
+            </button>
+          </div>
+        </div>
+      </div>
+    );
   }
 
   return (
@@ -870,10 +1097,17 @@ function AdminLoginModal({ onLogin, onClose }) {
               placeholder="e.g. Alex Martins" autoFocus autoComplete="name" />
           </div>
         )}
-        <div className="field"><label>Work email</label>
+        <div className="field">
+          <label>Work email</label>
           <input type="email" value={email} onChange={e=>setEmail(e.target.value)}
             autoFocus={mode==='signin'} autoComplete="email"
-            placeholder="you@squatwolf.com" required />
+            placeholder="you@squatwolf.com" required
+            className={emailLooksWrong ? 'input-warn' : ''} />
+          {emailLooksWrong && (
+            <div style={{fontFamily:"'Azeret Mono',monospace",fontSize:11,color:'#d48a34',marginTop:4,letterSpacing:'0.04em'}}>
+              ⚠ Must be a @squatwolf.com address
+            </div>
+          )}
         </div>
         <div className="field">
           <label>Password{mode==='request' ? ' (min 8 chars)' : ''}</label>
@@ -891,7 +1125,7 @@ function AdminLoginModal({ onLogin, onClose }) {
             : <span />}
           <div style={{display:'flex',gap:8}}>
             <button type="button" className="btn ghost" onClick={onClose}>Cancel</button>
-            <button type="submit" className="btn primary" disabled={loading}>
+            <button type="submit" className="btn primary" disabled={submitDisabled}>
               {loading ? '…' : (mode==='signin' ? 'Sign in' : 'Sign up')}
             </button>
           </div>
@@ -937,11 +1171,11 @@ function ItemFormModal({ initial, admin, onClose, onSaved }) {
         onSaved(data);
       }
       onClose();
-    } catch(e) { setErr(e.message); setSaving(false); }
+    } catch(e) { setErr(friendlyError(e)); setSaving(false); }
   }
 
   async function del() {
-    if (!window.confirm(`Delete "${initial.name}" from master inventory? This cannot be undone.`)) return;
+    if (!await confirm({ title: 'Delete this item?', body: `Delete "${initial.name}" from master inventory? This cannot be undone.`, danger: true, confirmLabel: 'Delete' })) return;
     await sb.from('items').delete().eq('id', initial.id);
     onSaved(null); onClose();
   }
@@ -961,19 +1195,19 @@ function ItemFormModal({ initial, admin, onClose, onSaved }) {
       });
       onSaved(data);
       onClose();
-    } catch(e) { setErr(e.message); setSaving(false); }
+    } catch(e) { setErr(friendlyError(e)); setSaving(false); }
   }
 
   async function markRepaired() {
-    if (!window.confirm(`Mark "${initial.name}" as repaired and back in service?`)) return;
+    if (!await confirm({ title: 'Mark repaired?', body: `Set "${initial.name}" back to Good condition and back in service?`, confirmLabel: 'Mark repaired' })) return;
     await setConditionAndLog('good', 'repaired', `Marked repaired (was ${CLABEL[initial.condition]||initial.condition})`);
   }
   async function retire() {
-    if (!window.confirm(`Retire "${initial.name}"? It will be hidden from new deployments and you'll need to reactivate it to use again.`)) return;
+    if (!await confirm({ title: 'Retire this item?', body: `Retire "${initial.name}"? It will be hidden from new deployments. You can reactivate later if needed.`, danger: true, confirmLabel: 'Retire' })) return;
     await setConditionAndLog('retired', 'retired', `Retired (was ${CLABEL[initial.condition]||initial.condition})`);
   }
   async function reactivate() {
-    if (!window.confirm(`Bring "${initial.name}" back into service?`)) return;
+    if (!await confirm({ title: 'Reactivate item?', body: `Bring "${initial.name}" back into service?`, confirmLabel: 'Reactivate' })) return;
     await setConditionAndLog('good', 'repaired', 'Reactivated from retirement');
   }
 
@@ -1133,7 +1367,7 @@ function EventFormModal({ admin, onClose, onSaved }) {
     const { data, error } = await sb.from('events').insert({
       name: name.trim(), event_date: date || null, location: location.trim(),
     }).select().single();
-    if (error) { setErr(error.message); setSaving(false); return; }
+    if (error) { setErr(friendlyError(error)); setSaving(false); return; }
     onSaved(data); onClose();
   }
 
@@ -1167,6 +1401,8 @@ function AssignItemsModal({ event, admin, existingItemIds, onClose, onAssigned }
   const [selected, setSelected] = useState(new Set());
   const [saving, setSaving]     = useState(false);
   const [query, setQuery]       = useState('');
+
+  const { safeClose } = useUnloadGuard(saving, onClose);
 
   useEffect(() => {
     sb.from('items').select('*').order('name').then(({ data }) => setItems(data || []));
@@ -1205,25 +1441,33 @@ function AssignItemsModal({ event, admin, existingItemIds, onClose, onAssigned }
     if (!selected.size) return;
     setSaving(true);
     const now = new Date().toISOString();
-    for (const item_id of selected) {
-      const { data: ei } = await sb.from('event_items').insert({
-        event_id: event.id, item_id, status: 'out',
-        assigned_by: admin.name, assigned_at: now,
-        updated_at: now, updated_by: admin.name,
-      }).select().single();
-      if (ei) {
-        await sb.from('history').insert({
-          item_id, event_item_id: ei.id, event_id: event.id,
-          action: 'assigned', changes: { note: `Assigned to deployment: ${event.name}` },
-          changed_by: admin.name, changed_at: now,
-        });
-      }
+    const ids = Array.from(selected);
+    // Single batch INSERT for the event_items rows, then single batch INSERT for history.
+    const eiPayload = ids.map(item_id => ({
+      event_id: event.id, item_id, status: 'out',
+      assigned_by: admin.name, assigned_at: now,
+      updated_at: now, updated_by: admin.name,
+    }));
+    const { data: eis, error: eiErr } = await sb.from('event_items').insert(eiPayload).select();
+    if (eiErr) {
+      toast(`Couldn't assign items: ${friendlyError(eiErr)}`, 'err');
+      setSaving(false);
+      return;
+    }
+    if (eis && eis.length) {
+      const histPayload = eis.map(ei => ({
+        item_id: ei.item_id, event_item_id: ei.id, event_id: event.id,
+        action: 'assigned', changes: { note: `Assigned to deployment: ${event.name}` },
+        changed_by: admin.name, changed_at: now,
+      }));
+      const { error: histErr } = await sb.from('history').insert(histPayload);
+      if (histErr) toast(`Items assigned, but history wasn't recorded: ${friendlyError(histErr)}`, 'err');
     }
     onAssigned(); onClose();
   }
 
   return (
-    <div className="backdrop" onClick={onClose}>
+    <div className="backdrop" onClick={safeClose}>
       <div className="modal" onClick={e=>e.stopPropagation()}>
         <h2>Assign items</h2>
         <input style={{marginBottom:10,width:'100%',background:'#1a1a1a',border:'1px solid #2a2a2a',color:'#FAFAFA',padding:'10px 12px',outline:'none',fontFamily:"'Azeret Mono',monospace",fontSize:13}} placeholder="Search items…"
@@ -1334,11 +1578,11 @@ function UpdateEventItemModal({ eventItem, item, admin, onClose, onSaved }) {
         });
       }
       onSaved(data); onClose();
-    } catch(e) { setErr(e.message); setSaving(false); }
+    } catch(e) { setErr(friendlyError(e)); setSaving(false); }
   }
 
   async function removeFromEvent() {
-    if (!window.confirm(`Remove "${item?.name}" from this event?`)) return;
+    if (!await confirm({ title: 'Remove from event?', body: `Remove "${item?.name}" from this event? Its assignment record will be deleted.`, danger: true, confirmLabel: 'Remove' })) return;
     await sb.from('event_items').delete().eq('id', eventItem.id);
     onSaved(null); onClose();
   }
@@ -1517,14 +1761,14 @@ function BulkReturnModal({ event, eventItems, items, admin, onClose, onDone }) {
   const [defaultLocation, setDefaultLocation] = useState('');
   const [defaultCondition, setDefaultCondition] = useState('good');
   const [processedBy, setProcessedBy] = useState(admin?.name || '');
-  // per-row condition overrides — keyed by event_item id; falls back to defaultCondition
   const [overrides, setOverrides] = useState({});
-  // selection — start with all selected
   const [selected, setSelected] = useState(() => new Set(outItems.map(ei => ei.id)));
   const [confirming, setConfirming] = useState(false);
   const [saving, setSaving] = useState(false);
   const [progress, setProgress] = useState({ done: 0, total: 0 });
   const [err, setErr] = useState('');
+
+  const { safeClose } = useUnloadGuard(saving, onClose);
 
   function toggle(id) {
     setSelected(prev => {
@@ -1542,14 +1786,19 @@ function BulkReturnModal({ event, eventItems, items, admin, onClose, onDone }) {
     const ids = Array.from(selected);
     setProgress({ done: 0, total: ids.length });
     const now = new Date().toISOString();
+    const procBy = (processedBy || admin?.name || '').trim();
+
+    // Run all per-row updates in parallel (Promise.all) — typical 30-row return
+    // drops from ~6s to <1s. Each row produces 3 writes (event_item, master item
+    // mirror, history) as before, but they overlap network-wise instead of
+    // queuing.
     try {
-      for (const eiId of ids) {
+      const tasks = ids.map(async (eiId) => {
         const ei = outItems.find(x => x.id === eiId);
-        if (!ei) continue;
+        if (!ei) return;
         const item = items[ei.item_id];
         const cond = overrides[eiId] || defaultCondition;
         const retLoc = (defaultLocation || item?.storage_location || '').trim();
-        const procBy = (processedBy || admin?.name || '').trim();
 
         const payload = {
           status: 'returned',
@@ -1564,26 +1813,25 @@ function BulkReturnModal({ event, eventItems, items, admin, onClose, onDone }) {
         const { error: upErr } = await sb.from('event_items').update(payload).eq('id', eiId);
         if (upErr) throw upErr;
 
-        // mirror condition onto master item
-        if (item) {
-          await sb.from('items').update({
+        // Fire master-item mirror + history insert in parallel
+        await Promise.all([
+          item ? sb.from('items').update({
             condition: cond, updated_at: now, updated_by: admin?.name || procBy,
-          }).eq('id', item.id);
-        }
-
-        await sb.from('history').insert({
-          item_id: ei.item_id, event_item_id: eiId, event_id: event.id,
-          action: 'returned',
-          changes: { note: `Returned (bulk) on ${new Date(now).toLocaleString()}. Sent to: ${retLoc||'—'}. Processed by: ${procBy||'—'}. Condition: ${CLABEL[cond]||cond}` },
-          changed_by: admin?.name || procBy, changed_at: now,
-        });
-
+          }).eq('id', item.id) : Promise.resolve(),
+          sb.from('history').insert({
+            item_id: ei.item_id, event_item_id: eiId, event_id: event.id,
+            action: 'returned',
+            changes: { note: `Returned (bulk) on ${new Date(now).toLocaleString()}. Sent to: ${retLoc||'—'}. Processed by: ${procBy||'—'}. Condition: ${CLABEL[cond]||cond}` },
+            changed_by: admin?.name || procBy, changed_at: now,
+          }),
+        ]);
         setProgress(p => ({ done: p.done + 1, total: p.total }));
-      }
+      });
+      await Promise.all(tasks);
       onDone();
       onClose();
     } catch (e) {
-      setErr(e.message || String(e));
+      setErr(friendlyError(e));
       setSaving(false);
     }
   }
@@ -1601,7 +1849,7 @@ function BulkReturnModal({ event, eventItems, items, admin, onClose, onDone }) {
   }
 
   return (
-    <div className="backdrop" onClick={onClose}>
+    <div className="backdrop" onClick={safeClose}>
       <div className="modal" onClick={e=>e.stopPropagation()}>
         <h2>Return all from {event.name}</h2>
 
@@ -1701,6 +1949,56 @@ function BulkReturnModal({ event, eventItems, items, admin, onClose, onDone }) {
   );
 }
 
+// ---------- quick-condition row ----------
+// One-tap mid-event condition change on a deployment item card. The 4 most
+// common targets: Good · Cleaning · Repair · Damaged. Tap = write + history,
+// no modal. Reserves the Update modal for everything else (notes, location, return).
+function QuickConditionRow({ ei, admin, onChanged }) {
+  const [busy, setBusy] = useState(false);
+  const opts = [
+    { v: 'good',           short: 'Good',   pill: 'good' },
+    { v: 'needs_cleaning', short: 'Clean',  pill: 'needs_cleaning' },
+    { v: 'needs_repair',   short: 'Repair', pill: 'needs_repair' },
+    { v: 'damaged',        short: 'Damage', pill: 'damaged' },
+  ];
+  async function set(newCond) {
+    if (newCond === ei.condition || busy) return;
+    setBusy(true);
+    const now = new Date().toISOString();
+    const { error } = await sb.from('event_items').update({
+      condition: newCond, updated_at: now, updated_by: admin.name,
+    }).eq('id', ei.id);
+    if (!error) {
+      // Mirror onto master item too so dashboards reflect immediately.
+      await sb.from('items').update({
+        condition: newCond, updated_at: now, updated_by: admin.name,
+      }).eq('id', ei.item_id);
+      await sb.from('history').insert({
+        item_id: ei.item_id, event_item_id: ei.id, event_id: ei.event_id,
+        action: 'condition_changed',
+        changes: { condition: { from: ei.condition, to: newCond } },
+        changed_by: admin.name, changed_at: now,
+      });
+      onChanged?.();
+    }
+    setBusy(false);
+  }
+  return (
+    <div className="quick-cond">
+      <span className="quick-cond-label">Quick set:</span>
+      {opts.map(o => (
+        <button key={o.v}
+          type="button"
+          disabled={busy || o.v === ei.condition}
+          className={`quick-cond-pill ${o.pill}${o.v === ei.condition ? ' selected' : ''}`}
+          onClick={()=>set(o.v)}>
+          {o.short}
+        </button>
+      ))}
+    </div>
+  );
+}
+
 // ---------- event detail ----------
 function EventDetail({ event, admin, onBack }) {
   const [eventItems, setEventItems] = useState([]);
@@ -1711,6 +2009,7 @@ function EventDetail({ event, admin, onBack }) {
   const [filter, setFilter]         = useState('all');
   const [scanOpen, setScanOpen]     = useState(false);
   const [scanMsg, setScanMsg]       = useState('');
+  const [scanLog, setScanLog]       = useState([]);    // continuous mode: [{ id, kind, label, canUndo }, ...]
   const [bulkOpen, setBulkOpen]     = useState(false);
   const [manifestOpen, setManifest] = useState(false);
 
@@ -1729,43 +2028,81 @@ function EventDetail({ event, admin, onBack }) {
 
   const existingItemIds = new Set(eventItems.map(ei => ei.item_id));
 
+  // Continuous-mode scan: stays open, accumulates a log, supports Undo of the
+  // most recent successful assign. Returns silently — feedback flows via setScanLog.
+  function pushScan(entry) { setScanLog(prev => [...prev, entry]); }
+
   async function handleScan(itemId) {
-    setScanOpen(false); setScanMsg('');
-    // already on this deployment? open update
+    // de-dupe: ignore if last successful scan was this same item within the cooldown
+    const last = scanLog[scanLog.length - 1];
+    if (last && last.id === itemId && last.kind === 'ok' && Date.now() - (last.at || 0) < 2000) return;
+
+    // already on this deployment? open update modal (single-mode behaviour)
     const existing = eventItems.find(ei => ei.item_id === itemId);
     if (existing) {
+      setScanOpen(false);
       setUpdating(existing);
       return;
     }
-    // fetch master item to verify it exists
+
     const { data: master } = await sb.from('items').select('*').eq('id', itemId).maybeSingle();
-    if (!master) { setScanMsg('Scanned QR doesn’t match any item in inventory.'); return; }
-    // check it's not out at another deployment
+    if (!master) { pushScan({ id: itemId, kind: 'err', label: 'Unknown code — not in inventory', at: Date.now() }); return; }
+    if (master.condition === 'retired') {
+      pushScan({ id: itemId, kind: 'err', label: `"${master.name}" is retired`, at: Date.now() });
+      return;
+    }
+
     const { data: outAt } = await sb.from('event_items')
       .select('event_id, events(name)').eq('item_id', itemId).eq('status', 'out').limit(1);
     const elsewhere = (outAt||[]).find(r => r.event_id !== event.id);
     if (elsewhere) {
-      setScanMsg(`"${master.name}" is currently out at: ${elsewhere.events?.name||'another deployment'}.`);
+      pushScan({ id: itemId, kind: 'err', label: `"${master.name}" is out at ${elsewhere.events?.name||'another deployment'}`, at: Date.now() });
       return;
     }
-    if (!admin) { setScanMsg('Log in as admin to assign items.'); return; }
-    // assign
+    if (!admin) {
+      pushScan({ id: itemId, kind: 'err', label: 'Sign in as admin to assign', at: Date.now() });
+      return;
+    }
+
     const now = new Date().toISOString();
-    const { data: ei } = await sb.from('event_items').insert({
+    const { data: ei, error } = await sb.from('event_items').insert({
       event_id: event.id, item_id: itemId, status: 'out',
       assigned_by: admin.name, assigned_at: now, updated_at: now, updated_by: admin.name,
     }).select().single();
-    if (ei) {
-      await sb.from('history').insert({
-        item_id: itemId, event_item_id: ei.id, event_id: event.id,
-        action: 'assigned',
-        changes: { note: `Assigned to deployment via scan: ${event.name}` },
-        changed_by: admin.name, changed_at: now,
-      });
-      setScanMsg(`Assigned: ${master.name}`);
-      load();
+    if (error) {
+      pushScan({ id: itemId, kind: 'err', label: `Failed: ${error.message}`, at: Date.now() });
+      return;
     }
+    await sb.from('history').insert({
+      item_id: itemId, event_item_id: ei.id, event_id: event.id,
+      action: 'assigned',
+      changes: { note: `Assigned to deployment via scan: ${event.name}` },
+      changed_by: admin.name, changed_at: now,
+    });
+    pushScan({ id: itemId, kind: 'ok', label: `Added: ${master.name}`, eiId: ei.id, canUndo: true, at: Date.now() });
+    load();
   }
+
+  async function undoLastScan() {
+    const idx = [...scanLog].reverse().findIndex(s => s.kind === 'ok' && s.canUndo);
+    if (idx === -1) return;
+    const realIdx = scanLog.length - 1 - idx;
+    const entry = scanLog[realIdx];
+    if (!entry?.eiId) return;
+    // Delete the event_item; cascades remove its history via FK in v2 schema (event_id ON DELETE CASCADE doesn't apply here, history references event_item_id ON DELETE CASCADE).
+    await sb.from('event_items').delete().eq('id', entry.eiId);
+    setScanLog(prev => prev.map((s, i) => i === realIdx ? { ...s, canUndo: false, kind: 'undone', label: `Undone: ${s.label.replace(/^Added: /,'')}` } : s));
+    load();
+  }
+
+  function closeScanner() {
+    setScanOpen(false);
+    setScanLog([]);
+    if (scanLog.some(s => s.kind === 'ok')) setScanMsg(`Added ${scanLog.filter(s => s.kind==='ok').length} item(s) via scan`);
+  }
+
+  const scanSuccessCount = scanLog.filter(s => s.kind === 'ok').length;
+  const lastScanForToast = scanLog.length ? scanLog[scanLog.length - 1] : null;
 
   const filtered = eventItems.filter(ei => {
     const it = items[ei.item_id];
@@ -1868,6 +2205,9 @@ function EventDetail({ event, admin, onBack }) {
                     {ei.notes && <><span className="k">Notes</span><span className="v">{ei.notes}</span></>}
                   </div>
                   <div className="meta">Updated by {ei.updated_by||'—'} · {fmtTime(ei.updated_at)}</div>
+                  {admin && ei.status !== 'returned' && (
+                    <QuickConditionRow ei={ei} admin={admin} onChanged={load} />
+                  )}
                   <div className="actions">
                     {admin && ei.status !== 'returned' && (
                       <button className="btn sm primary" onClick={()=>setUpdating(ei)}>Update</button>
@@ -1896,7 +2236,12 @@ function EventDetail({ event, admin, onBack }) {
       )}
       {scanOpen && (
         <ScannerModal title="Scan to assign / update"
-          onClose={()=>setScanOpen(false)} onScan={handleScan} />
+          mode="continuous"
+          counter={scanSuccessCount}
+          lastScan={lastScanForToast}
+          onUndoLast={undoLastScan}
+          onClose={closeScanner}
+          onScan={handleScan} />
       )}
       {bulkOpen && (
         <BulkReturnModal event={event} eventItems={eventItems} items={items} admin={admin}
@@ -2026,7 +2371,15 @@ function ItemsTab({ admin, openItemId, onOpened }) {
       {filtered.length === 0 ? (
         <div className="empty">
           {items.length === 0
-            ? (admin ? 'No items yet.' : 'No items in inventory yet.')
+            ? (admin
+                ? <div style={{display:'flex',flexDirection:'column',gap:10,alignItems:'center'}}>
+                    <div>No items yet — let's get the inventory started.</div>
+                    <div style={{display:'flex',gap:8,flexWrap:'wrap',justifyContent:'center'}}>
+                      <button className="btn primary" onClick={()=>setAddOpen(true)}>+ Add your first item</button>
+                      <button className="btn" onClick={()=>setImport(true)}>↑ Import from CSV</button>
+                    </div>
+                  </div>
+                : 'No items in inventory yet.')
             : 'No items match your filters.'}
         </div>
       ) : (
@@ -2108,16 +2461,24 @@ function DashboardTab({ admin, onGoTo }) {
   const [viewing, setViewing] = useState(null);
 
   async function load() {
-    const [itemsRes, outRes, allRes, hist] = await Promise.all([
-      sb.from('items').select('*').order('name'),
-      sb.from('event_items').select('*, events(id, name, event_date)').eq('status','out'),
-      sb.from('event_items').select('item_id'),
-      sb.from('history').select('*').order('changed_at', { ascending: false }).limit(8),
-    ]);
-    setItems(itemsRes.data || []);
-    setOut(outRes.data || []);
-    setAllEis(allRes.data || []);
-    setRecent(hist.data || []);
+    try {
+      const [itemsRes, outRes, allRes, hist] = await Promise.all([
+        sb.from('items').select('*').order('name'),
+        sb.from('event_items').select('*, events(id, name, event_date)').eq('status','out'),
+        sb.from('event_items').select('item_id'),
+        sb.from('history').select('*').order('changed_at', { ascending: false }).limit(8),
+      ]);
+      // any individual sub-query error -> surface but keep what we got
+      const errs = [itemsRes.error, outRes.error, allRes.error, hist.error].filter(Boolean);
+      if (errs.length) toast(`Couldn't load all dashboard data: ${friendlyError(errs[0])}`, 'err');
+      setItems(itemsRes.data || []);
+      setOut(outRes.data || []);
+      setAllEis(allRes.data || []);
+      setRecent(hist.data || []);
+    } catch (e) {
+      toast(`Couldn't load dashboard: ${friendlyError(e)}`, 'err');
+      setItems([]); setOut([]); setAllEis([]); setRecent([]);  // unblock UI from "Loading…"
+    }
   }
   useEffect(() => { load(); }, []);
 
@@ -2370,7 +2731,7 @@ function ManageTeamModal({ me, onClose }) {
       sb.from('admin_users').select('*').order('added_at'),
       sb.from('admin_requests').select('*').eq('status','pending').order('requested_at'),
     ]);
-    if (a.error) setErr(a.error.message);
+    if (a.error) setErr(friendlyError(a.error));
     setAdmins(a.data || []);
     setRequests(r.data || []);
     setLoading(false);
@@ -2402,18 +2763,18 @@ function ManageTeamModal({ me, onClose }) {
       }).eq('id', req.id);
       if (upErr) throw upErr;
       load();
-    } catch(e) { setErr(e.message); }
+    } catch(e) { setErr(friendlyError(e)); }
     setBusy(null);
   }
 
   async function deny(req) {
-    if (!window.confirm(`Deny access for ${req.email}?`)) return;
+    if (!await confirm({ title: 'Deny request?', body: `Deny access for ${req.email}? They can request again later.`, danger: true, confirmLabel: 'Deny' })) return;
     setBusy({ kind:'deny', id:req.id }); setErr('');
     const now = new Date().toISOString();
     const { error } = await sb.from('admin_requests').update({
       status: 'denied', reviewed_by: me.id, reviewed_at: now,
     }).eq('id', req.id);
-    if (error) setErr(error.message);
+    if (error) setErr(friendlyError(error));
     load(); setBusy(null);
   }
 
@@ -2424,17 +2785,17 @@ function ManageTeamModal({ me, onClose }) {
         setErr("You're the only master — promote someone else first.");
         return;
       }
-      if (!window.confirm(`Demote yourself to ${newRole}? You'll lose team management.`)) return;
+      if (!await confirm({ title: 'Demote yourself?', body: `Set your own role to ${newRole}? You'll lose team management. Make sure another Master is in place first.`, danger: true, confirmLabel: 'Demote me' })) return;
     } else if (newRole === 'master') {
-      if (!window.confirm(`Promote ${user.email} to Master? They'll be able to add and remove other admins.`)) return;
+      if (!await confirm({ title: 'Promote to Master?', body: `${user.email} will be able to add, remove and change other admins.`, confirmLabel: 'Promote' })) return;
     } else if (newRole === 'admin') {
-      if (!window.confirm(`Set ${user.email} to Admin (full edit access)?`)) return;
+      if (!await confirm({ title: 'Set role to Admin?', body: `${user.email} will get full edit access on inventory and deployments.`, confirmLabel: 'Set Admin' })) return;
     } else if (newRole === 'viewer') {
-      if (!window.confirm(`Set ${user.email} to Viewer (read-only)?`)) return;
+      if (!await confirm({ title: 'Set role to Viewer?', body: `${user.email} will lose edit access. They'll keep read access.`, confirmLabel: 'Set Viewer' })) return;
     }
     setBusy({ kind:'role', id:user.user_id }); setErr('');
     const { error } = await sb.from('admin_users').update({ role: newRole }).eq('user_id', user.user_id);
-    if (error) setErr(error.message);
+    if (error) setErr(friendlyError(error));
     load(); setBusy(null);
   }
 
@@ -2443,10 +2804,10 @@ function ManageTeamModal({ me, onClose }) {
       setErr("Can't remove the last master.");
       return;
     }
-    if (!window.confirm(`Remove ${user.email} from the team? They'll lose all admin access.`)) return;
+    if (!await confirm({ title: 'Remove from team?', body: `${user.email} will lose all access. They'll need to be re-approved if they want back in.`, danger: true, confirmLabel: 'Remove' })) return;
     setBusy({ kind:'remove', id:user.user_id }); setErr('');
     const { error } = await sb.from('admin_users').delete().eq('user_id', user.user_id);
-    if (error) setErr(error.message);
+    if (error) setErr(friendlyError(error));
     load(); setBusy(null);
   }
 
@@ -2454,6 +2815,12 @@ function ManageTeamModal({ me, onClose }) {
     <div className="backdrop" onClick={onClose}>
       <div className="modal" onClick={e=>e.stopPropagation()} style={{maxWidth:640}}>
         <h2>Manage team</h2>
+
+        <div className="role-legend">
+          <div><span className="role-pill viewer">Viewer</span><span>Read-only — can browse, scan, export</span></div>
+          <div><span className="role-pill admin">Admin</span><span>Full edit on inventory and deployments</span></div>
+          <div><span className="role-pill master">Master</span><span>Everything an Admin does, plus team management</span></div>
+        </div>
 
         {err && <div className="err" style={{marginBottom:10}}>{err}</div>}
 
@@ -2548,6 +2915,25 @@ function SignInGate({ onLoginRequest, deepLinkLabel }) {
   );
 }
 
+// ---------- viewer welcome banner ----------
+// One-time, per-user, dismissible explainer for new Viewers so they know
+// they're allowed to browse and what to ask for if they need to edit.
+function ViewerWelcomeBanner({ userId }) {
+  const key = `eit:viewer-welcome:${userId}`;
+  const [show, setShow] = useState(() => !localStorage.getItem(key));
+  if (!show) return null;
+  function dismiss() { localStorage.setItem(key, '1'); setShow(false); }
+  return (
+    <div className="viewer-welcome">
+      <div className="viewer-welcome-body">
+        <strong>Welcome to the inventory.</strong>{' '}
+        You can browse all items, deployments, and history, scan QR codes, and export the manifest. Editing (adding, returning, marking damaged) is reserved for Admins — ask a master to bump your role if you need it.
+      </div>
+      <button className="viewer-welcome-x" onClick={dismiss} aria-label="Dismiss">✕</button>
+    </div>
+  );
+}
+
 // ---------- main app ----------
 function App() {
   // session: any signed-in user (admin OR pending). admin: only approved roles.
@@ -2566,6 +2952,15 @@ function App() {
   const [openItemId, setOpenItemId]   = useState(null);
   const [openEventId, setOpenEventId] = useState(null);
   const [landing, setLanding]         = useState(null);  // { kind: 'item'|'event', id } | null
+  const [online, setOnline]           = useState(() => typeof navigator !== 'undefined' ? navigator.onLine : true);
+
+  useEffect(() => {
+    const on  = () => { setOnline(true);  toast('Back online', 'ok'); };
+    const off = () => { setOnline(false); toast('You’re offline — changes won’t save until you reconnect', 'err'); };
+    window.addEventListener('online', on);
+    window.addEventListener('offline', off);
+    return () => { window.removeEventListener('online', on); window.removeEventListener('offline', off); };
+  }, []);
 
   // deep-links: ?item=<uuid> or ?event=<uuid>
   // Show a focused ScanLanding card first; only enter the full app when dismissed.
@@ -2664,6 +3059,8 @@ function App() {
           }
         />
         {loginOpen && <AdminLoginModal onLogin={handleLogin} onClose={()=>setLoginOpen(false)} />}
+        <ToastHost />
+        <ConfirmHost />
       </>
     );
   }
@@ -2674,6 +3071,8 @@ function App() {
       <>
         <ScanLanding kind={landing.kind} id={landing.id} onDismiss={dismissLanding} />
         {loginOpen && <AdminLoginModal onLogin={handleLogin} onClose={()=>setLoginOpen(false)} />}
+        <ToastHost />
+        <ConfirmHost />
       </>
     );
   }
@@ -2695,11 +3094,17 @@ function App() {
           <button className="btn sm ghost" onClick={logout} title="Log out">↺</button>
         </div>
       </div>
+      {!online && (
+        <div className="offline-banner">
+          ● Offline — changes won't save until you reconnect.
+        </div>
+      )}
       {isPending && (
         <div className="pending-banner">
           Your access is pending approval. You can browse the inventory but can't edit yet.
         </div>
       )}
+      {isViewer && <ViewerWelcomeBanner userId={session.id} />}
 
       {/* tabs */}
       <div className="tabs">
@@ -2718,6 +3123,8 @@ function App() {
       {manageOpen && isMaster && (
         <ManageTeamModal me={session} onClose={()=>setManageOpen(false)} />
       )}
+      <ToastHost />
+      <ConfirmHost />
     </div>
   );
 }
