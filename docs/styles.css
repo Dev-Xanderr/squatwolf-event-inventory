@@ -1,7 +1,47 @@
 /* ── Google Fonts ── loaded via index.html ─────────────────────────────── */
 
+/* ── Brand tokens ────────────────────────────────────────────────────────── */
+:root {
+  /* Surfaces — flat dark, layered */
+  --surface-0:        #121212;   /* app background */
+  --surface-1:        #1a1a1a;   /* cards, modals, tiles */
+  --surface-2:        #141414;   /* nested groupings inside surface-1 */
+  --border:           #2a2a2a;   /* hairline borders everywhere */
+  --border-strong:    #3a3a3a;   /* focus / hover on cards */
+
+  /* Text */
+  --text:             #FAFAFA;   /* primary copy */
+  --text-2:           #d0d0d0;   /* body subtle */
+  --text-mute:        #7A7A7A;   /* labels, meta */
+  --text-mute-2:      #888;
+  --text-disabled:    #5a5a5a;
+
+  /* Brand */
+  --brand-red:        #B93A32;   /* primary CTA / brand wordmark / tab active */
+  --brand-red-hover:  #d44438;
+
+  /* Accents — semantic */
+  --accent-good:      #5fcf7e;   /* good condition / returned status / all-clear */
+  --accent-good-bg:   #0d2b17;
+  --accent-good-bd:   #1a4a28;
+  --accent-warn:      #d4a534;   /* needs_repair, viewer welcome */
+  --accent-warn-bg:   #2b2208;
+  --accent-warn-bd:   #4a3a10;
+  --accent-out:       #d48a34;   /* status-out / overdue */
+  --accent-out-bg:    #2b1a08;
+  --accent-out-bd:    #4a3018;
+  --accent-bad:       #e87070;   /* damaged / errors */
+  --accent-bad-bg:    #2b0d0d;
+  --accent-bad-bd:    #5a2222;
+  --accent-info:      #5aafd4;   /* needs_cleaning */
+  --accent-info-bg:   #0d1e2b;
+  --accent-info-bd:   #1a3348;
+}
+
 /* ── Reset + base ─────────────────────────────────────────────────────────── */
 * { box-sizing: border-box; }
+/* Brand-red tap-highlight on touch — same flash all over the app */
+html { -webkit-tap-highlight-color: rgba(185, 58, 50, 0.25); }
 html, body, #root { height: 100%; }
 body {
   margin: 0;
@@ -123,7 +163,7 @@ h1, h2, h3 {
   padding: 6px 8px; font-size: 11px;
   font-family: 'Azeret Mono', monospace; letter-spacing: 0.04em; text-transform: uppercase;
 }
-.role-select:focus { border-color: #B93A32; outline: none; }
+.role-select:focus { border-color: rgba(255,255,255,0.45); outline: none; }
 .role-select:disabled { opacity: 0.45; cursor: not-allowed; }
 
 /* Viewer welcome banner — one-time onboarding for new viewer accounts */
@@ -225,7 +265,9 @@ h1, h2, h3 {
   word-break: break-all;
 }
 @media (max-width: 480px) {
-  .role-pill { max-width: 130px; font-size: 9px; padding: 3px 7px; }
+  .role-pill { max-width: 130px; font-size: 10px; padding: 3px 7px; }
+  /* The master's full name eats the topbar — drop it on phones, keep just role */
+  .role-pill .role-name { display: none; }
 }
 
 /* ── Inline "log in to edit" prompt ──────────────────────────────────────── */
@@ -284,7 +326,7 @@ h1, h2, h3 {
   font-family: 'Azeret Mono', monospace; font-size: 13px;
   min-width: 0;
 }
-.controls input:focus, .controls select:focus { border-color: #B93A32; }
+.controls input:focus, .controls select:focus { border-color: rgba(255,255,255,0.45); }
 .controls .search { flex: 1 1 200px; }
 .controls .filter { flex: 0 1 160px; }
 
@@ -314,13 +356,21 @@ h1, h2, h3 {
 @media (min-width: 720px) { .items { grid-template-columns: 1fr 1fr; } }
 
 .item {
-  background: #1a1a1a; border: 1px solid #2a2a2a;
+  background: var(--surface-1); border: 1px solid var(--border);
+  border-left: 3px solid transparent;     /* status accent rail */
   border-radius: 0;
   padding: 14px; display: flex; flex-direction: column; gap: 8px;
-  transition: border-color 0.15s;
+  transition: border-color 0.15s, background 0.15s;
 }
-.item:hover { border-color: #3a3a3a; }
+.item:hover { border-color: var(--border-strong); }
+.item:hover { border-left-color: var(--border-strong); }
 .item.clickable { cursor: pointer; }
+.item.clickable:active { background: #221010; transition: background 60ms; }
+/* Status-driven left rail — quick visual scan across a list */
+.item.item-out       { border-left-color: var(--accent-out); }
+.item.item-returned  { border-left-color: var(--accent-good); opacity: 0.92; }
+.item.item-attention { border-left-color: var(--accent-warn); }
+.item.item-retired   { border-left-color: var(--text-disabled); opacity: 0.7; }
 .item .row { display: flex; align-items: center; gap: 10px; }
 .item .name {
   font-family: 'Barlow Condensed', sans-serif;
@@ -423,6 +473,15 @@ h1, h2, h3 {
 .quick-cond-pill.selected.needs_repair   { background: rgba(212,165,52,0.15);  border-color: #d4a534; color: #d4a534; }
 .quick-cond-pill.selected.damaged        { background: rgba(232,112,112,0.15); border-color: #e87070; color: #e87070; }
 .quick-cond-pill:disabled:not(.selected) { opacity: 0.4; cursor: not-allowed; }
+.quick-cond-pill:active:not(:disabled) { background: #221010; transition: background 60ms; }
+
+/* On phones: drop the leading "Quick set:" label, give pills a stable 4-up
+   grid so taps land predictably and nothing wraps weird. */
+@media (max-width: 480px) {
+  .quick-cond { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; margin-top: 6px; }
+  .quick-cond-label { display: none; }
+  .quick-cond-pill { padding: 8px 4px; font-size: 11px; min-height: 36px; }
+}
 
 /* ── CSV import preview table ────────────────────────────────────────────── */
 .csv-preview {
@@ -448,9 +507,19 @@ h1, h2, h3 {
 .csv-preview tr.add  td:first-child { color: #5fcf7e; }
 
 .empty {
-  text-align: center; padding: 48px 16px; color: #7A7A7A;
-  border: 1px dashed #2a2a2a;
+  text-align: center; padding: 48px 16px; color: var(--text-mute);
+  border: 1px dashed var(--border);
   font-family: 'Azeret Mono', monospace; font-size: 13px;
+}
+/* All-clear empty state — branded, calm, signals "nothing's wrong" */
+.dash-empty.allclear {
+  font-family: 'Barlow Condensed', sans-serif;
+  font-size: 14px; letter-spacing: 0.08em; text-transform: uppercase;
+  color: var(--accent-good);
+  padding: 14px 8px;
+}
+.dash-empty.allclear::before {
+  content: '●'; margin-right: 8px; font-size: 9px;
 }
 
 /* ── Dashboard ───────────────────────────────────────────────────────────── */
@@ -461,15 +530,17 @@ h1, h2, h3 {
 @media (max-width: 600px) {
   .kpi-row { grid-template-columns: repeat(2, 1fr); }
 }
-.dash-section { margin-bottom: 18px; }
+.dash-section { margin-bottom: 22px; }
+/* Primary section headers — Barlow gives them weight and a designed feel */
 .dash-section-head {
-  font-family: 'Azeret Mono', monospace;
-  font-size: 11px; color: #7A7A7A;
-  letter-spacing: 0.1em; text-transform: uppercase;
-  padding: 0 0 6px 0;
-  border-bottom: 1px solid #2a2a2a;
-  margin-bottom: 8px;
-  display: flex; justify-content: space-between; align-items: center;
+  font-family: 'Barlow Condensed', sans-serif;
+  font-size: 16px; font-weight: 500;
+  color: var(--text);
+  letter-spacing: 0.08em; text-transform: uppercase;
+  padding: 0 0 8px 0;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 10px;
+  display: flex; justify-content: space-between; align-items: baseline;
 }
 .dash-list { display: flex; flex-direction: column; gap: 6px; }
 .dash-empty {
@@ -478,12 +549,18 @@ h1, h2, h3 {
 }
 .dash-row {
   display: flex; align-items: center; gap: 10px;
-  background: #1a1a1a; border: 1px solid #2a2a2a;
+  background: var(--surface-1); border: 1px solid var(--border);
   padding: 10px 12px;
   cursor: pointer;
   transition: border-color 0.15s, background 0.15s;
 }
-.dash-row:hover { border-color: #3a3a3a; background: #1f1f1f; }
+.dash-row:hover { border-color: var(--border-strong); background: #1f1f1f; }
+.dash-row:active { background: #221010; transition: background 60ms; }
+/* Mobile-first tap responsiveness on every row-style surface */
+.scan-item-row:active,
+.check-row:active,
+.team-row:active,
+.tabs button:active { background: #221010; transition: background 60ms; }
 .dash-row-name {
   font-family: 'Barlow Condensed', sans-serif;
   font-size: 16px; font-weight: 500;
@@ -508,29 +585,42 @@ h1, h2, h3 {
 }
 .dash-group-name {
   font-family: 'Barlow Condensed', sans-serif;
-  font-size: 14px; font-weight: 500;
+  font-size: 18px; font-weight: 700;
   letter-spacing: 0.06em; text-transform: uppercase;
 }
 .dash-group-count {
+  display: inline-flex; align-items: center;
+  background: var(--brand-red); color: var(--text);
+  padding: 2px 9px;
   font-family: 'Azeret Mono', monospace;
-  font-size: 10px; color: #d48a34;
-  letter-spacing: 0.06em;
+  font-size: 10px; font-weight: 700;
+  letter-spacing: 0.08em;
 }
 
 /* ── Stat boxes ───────────────────────────────────────────────────────────── */
 .stat-box {
-  flex: 1; background: #1a1a1a; border: 1px solid #2a2a2a;
-  padding: 12px 14px; text-align: center;
+  flex: 1; background: var(--surface-1); border: 1px solid var(--border);
+  padding: 14px 14px; text-align: center;
+  position: relative;
+  border-bottom-width: 2px;
+  transition: border-color 0.15s, background 0.15s;
 }
+/* When a count > 0 implies "needs attention" the bottom border carries the
+   accent and the number gets weightier. Stays calm when value is 0. */
+.stat-box.alert        { border-bottom-color: var(--accent-out); }
+.stat-box.alert.danger { border-bottom-color: var(--accent-bad); }
 .stat-box .stat-value {
   font-family: 'Barlow Condensed', sans-serif;
-  font-size: 28px; font-weight: 500; letter-spacing: 0.04em;
+  font-size: 36px; font-weight: 700; letter-spacing: 0.04em;
+  line-height: 1;
 }
+.stat-box.alert        .stat-value { color: var(--accent-out); }
+.stat-box.alert.danger .stat-value { color: var(--accent-bad); }
 .stat-box .stat-label {
   font-family: 'Azeret Mono', monospace;
-  font-size: 10px; color: #7A7A7A;
+  font-size: 10px; color: var(--text-mute);
   letter-spacing: 0.06em; text-transform: uppercase;
-  margin-top: 2px;
+  margin-top: 6px;
 }
 
 /* ── Modal ───────────────────────────────────────────────────────────────── */
@@ -577,8 +667,9 @@ h1, h2, h3 {
 .modal .field textarea { min-height: 80px; resize: vertical; }
 .modal .field input:focus,
 .modal .field select:focus,
-.modal .field textarea:focus { border-color: #B93A32; }
-.modal .field input.input-warn { border-color: #d48a34; }
+.modal .field textarea:focus { border-color: rgba(255,255,255,0.45); }
+.modal .field input.input-warn,
+.modal .field input.input-warn:focus { border-color: var(--accent-out); }
 
 .modal .actions {
   display: flex; gap: 8px; justify-content: flex-end;
@@ -731,14 +822,15 @@ h1, h2, h3 {
   to   { opacity: 1; transform: translateY(0); }
 }
 
-/* ── Section label ───────────────────────────────────────────────────────── */
+/* ── Section label (smaller in-modal section headers) ────────────────────── */
 .section-label {
-  font-family: 'Azeret Mono', monospace;
-  font-size: 10px; color: #7A7A7A;
-  letter-spacing: 0.1em; text-transform: uppercase;
-  margin: 16px 0 8px 0;
+  font-family: 'Barlow Condensed', sans-serif;
+  font-size: 14px; font-weight: 500;
+  color: var(--text);
+  letter-spacing: 0.08em; text-transform: uppercase;
+  margin: 18px 0 10px 0;
   padding-bottom: 6px;
-  border-bottom: 1px solid #2a2a2a;
+  border-bottom: 1px solid var(--border);
 }
 
 /* ── Scanner ─────────────────────────────────────────────────────────────── */
@@ -1019,17 +1111,19 @@ h1, h2, h3 {
   .back-bar .btn { flex: 0 0 auto; }
 }
 
-/* Stat boxes — keep all 3 visible on phones, just shrink the number */
+/* Stat boxes — preserve emphasis on the number even on small screens */
 @media (max-width: 480px) {
-  .stat-box { padding: 8px 6px; }
-  .stat-box .stat-value { font-size: 22px; }
-  .stat-box .stat-label { font-size: 9px; }
+  .stat-box { padding: 10px 6px; }
+  .stat-box .stat-value { font-size: 28px; }
+  .stat-box .stat-label { font-size: 10px; }
 }
 
-/* Item card fields — labels can get cramped on narrow phones */
-@media (max-width: 380px) {
-  .item .fields { grid-template-columns: 80px 1fr; gap: 3px 8px; font-size: 12px; }
-  .item .fields .k { font-size: 9px; }
+/* Item card fields — stack to one column on phones for thumb-scanning.
+   Mono labels stay at 11px (no shrink below that — venue brightness rule). */
+@media (max-width: 480px) {
+  .item .fields { grid-template-columns: 1fr; gap: 4px; }
+  .item .fields .k { display: block; font-size: 11px; padding-top: 6px; color: var(--text-mute); }
+  .item .fields .v { padding-bottom: 2px; }
 }
 
 /* Manifest preview — table is too wide for a phone, let it scroll */
@@ -1046,10 +1140,16 @@ h1, h2, h3 {
 /* CSV preview — same: scroll instead of squashing */
 .csv-preview { min-width: 540px; }
 
-/* Scanner — full-width on phones for easier framing */
+/* Scanner — full-width on phones; running counter becomes the loudest thing */
 @media (max-width: 480px) {
   .scanner-modal { padding: 14px; }
+  .scanner-modal h2 { font-size: 16px; }
   .scanner-frame { aspect-ratio: 4 / 5; }
+  .scanner-counter {
+    font-family: 'Barlow Condensed', sans-serif;
+    font-size: 20px; font-weight: 700;
+    padding: 4px 14px;
+  }
 }
 
 /* Label sheet preview — drop to 1 column on tiny phones for legibility */
@@ -1057,10 +1157,21 @@ h1, h2, h3 {
   .label-sheet { grid-template-columns: 1fr; }
 }
 
-/* Bulk return / assign rows — stop the per-row condition select from squashing */
+/* Bulk return / assign rows — stack vertically on phones so the condition
+   select is a full-width tap target instead of squashing the item name. */
 @media (max-width: 480px) {
-  .check-row { padding: 8px 10px; gap: 8px; }
-  .check-row select { font-size: 10px !important; padding: 4px !important; }
+  .check-row {
+    padding: 10px 12px; gap: 8px;
+    flex-wrap: wrap;
+  }
+  .check-row > div:not(:first-child) { flex: 1 1 100%; min-width: 0; }
+  .check-row select {
+    flex: 1 1 100% !important;
+    min-height: 40px !important;
+    font-size: 13px !important;
+    padding: 8px 10px !important;
+    margin-top: 4px;
+  }
 }
 
 /* Dashboard KPI tiles — already reflows to 2-up at 600px; tighten further on tiny phones */

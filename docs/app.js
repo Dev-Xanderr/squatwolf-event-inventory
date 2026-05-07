@@ -2180,8 +2180,9 @@ function EventDetail({ event, admin, onBack }) {
             {filtered.map(ei => {
               const it = items[ei.item_id];
               if (!it) return null;
+              const cardClass = `item item-${ei.status === 'returned' ? 'returned' : 'out'}`;
               return (
-                <div className="item" key={ei.id}>
+                <div className={cardClass} key={ei.id}>
                   <div className="row">
                     <div className="name">{it.name}</div>
                     <div style={{display:'flex',gap:6,alignItems:'center'}}>
@@ -2385,7 +2386,8 @@ function ItemsTab({ admin, openItemId, onOpened }) {
       ) : (
         <div className="items">
           {filtered.map(it => (
-            <div className="item clickable" key={it.id} onClick={()=>setViewing(it)}>
+            <div className={`item clickable${outMap[it.id] ? ' item-out' : ''}${it.condition === 'retired' ? ' item-retired' : ''}${['damaged','needs_repair','needs_cleaning'].includes(it.condition) ? ' item-attention' : ''}`}
+              key={it.id} onClick={()=>setViewing(it)}>
               <div className="row">
                 <div className="name">{it.name}</div>
                 <div style={{display:'flex',gap:5,alignItems:'center',flexShrink:0}}>
@@ -2528,19 +2530,31 @@ function DashboardTab({ admin, onGoTo }) {
 
   return (
     <div className="container">
-      {/* top KPI row */}
+      {/* top KPI row — alert classes light up when something needs attention */}
       <div className="kpi-row">
-        <div className="stat-box"><div className="stat-value">{totalItems}</div><div className="stat-label">Total items</div></div>
-        <div className="stat-box"><div className="stat-value" style={{color:'#d48a34'}}>{totalOut}</div><div className="stat-label">Currently out</div></div>
-        <div className="stat-box"><div className="stat-value" style={{color:'#e87070'}}>{overdue.length}</div><div className="stat-label">Overdue</div></div>
-        <div className="stat-box"><div className="stat-value" style={{color:'#d4a534'}}>{needsAttention.length}</div><div className="stat-label">Needs attention</div></div>
+        <div className="stat-box">
+          <div className="stat-value">{totalItems}</div>
+          <div className="stat-label">Total items</div>
+        </div>
+        <div className={`stat-box${totalOut > 0 ? ' alert' : ''}`}>
+          <div className="stat-value">{totalOut}</div>
+          <div className="stat-label">Currently out</div>
+        </div>
+        <div className={`stat-box${overdue.length > 0 ? ' alert danger' : ''}`}>
+          <div className="stat-value">{overdue.length}</div>
+          <div className="stat-label">Overdue</div>
+        </div>
+        <div className={`stat-box${needsAttention.length > 0 ? ' alert' : ''}`}>
+          <div className="stat-value">{needsAttention.length}</div>
+          <div className="stat-label">Needs attention</div>
+        </div>
       </div>
 
       {/* Overdue */}
       <DashSection
         title={`Overdue (> ${OVERDUE_DAYS} days)`}
-        emptyText="Nothing overdue. 🎯"
-        emoji=""
+        emptyText="ALL CLEAR — NOTHING OVERDUE"
+        allClear
       >
         {overdue.length > 0 && overdue.map(r => {
           const it = itemMap[r.item_id];
@@ -2562,7 +2576,8 @@ function DashboardTab({ admin, onGoTo }) {
       {/* Needs attention */}
       <DashSection
         title="Needs attention"
-        emptyText="All items in good condition."
+        emptyText="ALL CLEAR — EVERYTHING IN GOOD CONDITION"
+        allClear
       >
         {needsAttention.map(it => (
           <div className="dash-row" key={it.id} onClick={()=>setViewing(it)}>
@@ -2578,7 +2593,8 @@ function DashboardTab({ admin, onGoTo }) {
       {/* Currently out — by deployment */}
       <DashSection
         title="Currently out"
-        emptyText="Nothing checked out."
+        emptyText="ALL CLEAR — NOTHING CHECKED OUT"
+        allClear
       >
         {outDeployments.map(({event, rows}) => (
           <div className="dash-group" key={event?.id || Math.random()}>
@@ -2646,13 +2662,13 @@ function DashboardTab({ admin, onGoTo }) {
   );
 }
 
-function DashSection({ title, emptyText, children }) {
+function DashSection({ title, emptyText, allClear, children }) {
   const arr = React.Children.toArray(children).filter(Boolean);
   return (
     <div className="dash-section">
       <div className="dash-section-head">{title}</div>
       {arr.length === 0
-        ? <div className="dash-empty">{emptyText}</div>
+        ? <div className={`dash-empty${allClear ? ' allclear' : ''}`}>{emptyText}</div>
         : <div className="dash-list">{arr}</div>}
     </div>
   );
@@ -3084,10 +3100,10 @@ function App() {
         <span className="brand">SQUATWOLF</span>
         <span className="spacer" />
         <div className="topbar-mode">
-          {session.role === 'master' && <span className="role-pill master">Master · {session.name}</span>}
-          {session.role === 'admin'  && <span className="role-pill admin">Admin · {session.name}</span>}
-          {session.role === 'viewer' && <span className="role-pill viewer">Viewer · {session.name}</span>}
-          {!session.role             && <span className="role-pill pending">Pending · {session.name}</span>}
+          {session.role === 'master' && <span className="role-pill master">Master<span className="role-name"> · {session.name}</span></span>}
+          {session.role === 'admin'  && <span className="role-pill admin">Admin<span className="role-name"> · {session.name}</span></span>}
+          {session.role === 'viewer' && <span className="role-pill viewer">Viewer<span className="role-name"> · {session.name}</span></span>}
+          {!session.role             && <span className="role-pill pending">Pending<span className="role-name"> · {session.name}</span></span>}
           {isMaster && (
             <button className="btn sm" onClick={()=>setManageOpen(true)} title="Manage team">⚙ Team</button>
           )}
