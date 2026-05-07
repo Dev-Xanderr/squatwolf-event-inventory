@@ -810,10 +810,15 @@ function AdminLoginModal({ onLogin, onClose }) {
 
   async function requestAccess(e) {
     e.preventDefault(); setErr(''); setInfo(''); setLoading(true);
+    const trimmedEmail = email.trim().toLowerCase();
     if (!name.trim()) { setErr('Please enter your name.'); setLoading(false); return; }
+    if (!trimmedEmail.endsWith('@squatwolf.com')) {
+      setErr('Sign-up is restricted to @squatwolf.com email addresses.');
+      setLoading(false); return;
+    }
     if (password.length < 8) { setErr('Password must be at least 8 characters.'); setLoading(false); return; }
     const { data, error } = await sb.auth.signUp({
-      email: email.trim().toLowerCase(),
+      email: trimmedEmail,
       password,
       options: { data: { name: name.trim() } },
     });
@@ -848,14 +853,14 @@ function AdminLoginModal({ onLogin, onClose }) {
     <div className="backdrop" onClick={onClose}>
       <form className="modal" style={{maxWidth:380}} onClick={e=>e.stopPropagation()}
         onSubmit={mode === 'signin' ? signIn : requestAccess}>
-        <h2>{mode === 'signin' ? 'Sign in' : 'Request access'}</h2>
+        <h2>{mode === 'signin' ? 'Sign in' : 'Sign up'}</h2>
 
         <div className="auth-tabs">
           <button type="button" className={mode==='signin' ? 'active' : ''} onClick={()=>{setMode('signin'); setErr(''); setInfo('');}}>
             Sign in
           </button>
           <button type="button" className={mode==='request' ? 'active' : ''} onClick={()=>{setMode('request'); setErr(''); setInfo('');}}>
-            Request access
+            Sign up
           </button>
         </div>
 
@@ -887,7 +892,7 @@ function AdminLoginModal({ onLogin, onClose }) {
           <div style={{display:'flex',gap:8}}>
             <button type="button" className="btn ghost" onClick={onClose}>Cancel</button>
             <button type="submit" className="btn primary" disabled={loading}>
-              {loading ? '…' : (mode==='signin' ? 'Sign in' : 'Request access')}
+              {loading ? '…' : (mode==='signin' ? 'Sign in' : 'Sign up')}
             </button>
           </div>
         </div>
