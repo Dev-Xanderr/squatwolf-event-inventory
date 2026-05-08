@@ -3899,6 +3899,55 @@ function DashboardTab({
   // Needs attention — items in damaged / needs_repair / needs_cleaning
   const needsAttention = items.filter(it => it.condition === 'damaged' || it.condition === 'needs_repair' || it.condition === 'needs_cleaning');
   const totalOut = outRows.length;
+
+  // One-tap return from the dashboard. Reuses the same payload shape as the
+  // bulk-return flow in EventDetail so the data ends up identical.
+  async function markReturned(r) {
+    const item = itemMap[r.item_id];
+    const ok = await confirm({
+      title: 'Mark returned?',
+      body: `Mark "${item?.name || 'this item'}" as returned?`,
+      confirmLabel: 'Mark returned'
+    });
+    if (!ok) return;
+    const now = new Date().toISOString();
+    const cond = r.condition || item?.condition || 'good';
+    const retLoc = item?.storage_location || '';
+    try {
+      const {
+        error: upErr
+      } = await sb.from('event_items').update({
+        status: 'returned',
+        returned_by: admin.name,
+        returned_at: now,
+        condition_on_return: cond,
+        current_location: retLoc,
+        condition: cond,
+        updated_at: now,
+        updated_by: admin.name
+      }).eq('id', r.id);
+      if (upErr) throw upErr;
+      await Promise.all([item ? sb.from('items').update({
+        condition: cond,
+        updated_at: now,
+        updated_by: admin.name
+      }).eq('id', item.id) : Promise.resolve(), sb.from('history').insert({
+        item_id: r.item_id,
+        event_item_id: r.id,
+        event_id: r.event_id,
+        action: 'returned',
+        changes: {
+          note: `Marked returned from dashboard. Sent to: ${retLoc || '—'}.`
+        },
+        changed_by: admin.name,
+        changed_at: now
+      })]);
+      toast(`Marked "${item?.name || 'item'}" as returned`, 'ok');
+      setOut(prev => prev.filter(x => x.id !== r.id)); // realtime will resync, but make UI feel instant
+    } catch (e) {
+      toast(`Couldn't mark returned: ${friendlyError(e)}`, 'err');
+    }
+  }
   return /*#__PURE__*/React.createElement("div", {
     className: "container"
   }, /*#__PURE__*/React.createElement("div", {
@@ -3980,7 +4029,14 @@ function DashboardTab({
       }
     }, days, "d past event")))), /*#__PURE__*/React.createElement("span", {
       className: `badge ${r.condition || 'good'}`
-    }, CLABEL[r.condition] || r.condition || '—'));
+    }, CLABEL[r.condition] || r.condition || '—'), admin && /*#__PURE__*/React.createElement("button", {
+      className: "btn dash-row-action",
+      onClick: e => {
+        e.stopPropagation();
+        markReturned(r);
+      },
+      title: "Mark returned"
+    }, "\u2713 Return"));
   })))), /*#__PURE__*/React.createElement(DashSection, {
     title: "Needs attention",
     emptyText: "ALL CLEAR \u2014 EVERYTHING IN GOOD CONDITION",

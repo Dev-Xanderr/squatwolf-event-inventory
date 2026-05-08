@@ -2560,6 +2560,53 @@ function DashboardTab({ admin, onGoTo }) {
 
   const totalOut = outRows.length;
 
+  // One-tap return from the dashboard. Reuses the same payload shape as the
+  // bulk-return flow in EventDetail so the data ends up identical.
+  async function markReturned(r) {
+    const item = itemMap[r.item_id];
+    const ok = await confirm({
+      title: 'Mark returned?',
+      body: `Mark "${item?.name || 'this item'}" as returned?`,
+      confirmLabel: 'Mark returned',
+    });
+    if (!ok) return;
+
+    const now    = new Date().toISOString();
+    const cond   = r.condition || item?.condition || 'good';
+    const retLoc = item?.storage_location || '';
+
+    try {
+      const { error: upErr } = await sb.from('event_items').update({
+        status: 'returned',
+        returned_by: admin.name,
+        returned_at: now,
+        condition_on_return: cond,
+        current_location: retLoc,
+        condition: cond,
+        updated_at: now,
+        updated_by: admin.name,
+      }).eq('id', r.id);
+      if (upErr) throw upErr;
+
+      await Promise.all([
+        item ? sb.from('items').update({
+          condition: cond, updated_at: now, updated_by: admin.name,
+        }).eq('id', item.id) : Promise.resolve(),
+        sb.from('history').insert({
+          item_id: r.item_id, event_item_id: r.id, event_id: r.event_id,
+          action: 'returned',
+          changes: { note: `Marked returned from dashboard. Sent to: ${retLoc||'—'}.` },
+          changed_by: admin.name, changed_at: now,
+        }),
+      ]);
+
+      toast(`Marked "${item?.name||'item'}" as returned`, 'ok');
+      setOut(prev => prev.filter(x => x.id !== r.id));  // realtime will resync, but make UI feel instant
+    } catch (e) {
+      toast(`Couldn't mark returned: ${friendlyError(e)}`, 'err');
+    }
+  }
+
   return (
     <div className="container">
       {/* KPI row — leads with action-oriented numbers, not vanity totals */}
@@ -2624,6 +2671,13 @@ function DashboardTab({ admin, onGoTo }) {
                     </div>
                   </div>
                   <span className={`badge ${r.condition||'good'}`}>{CLABEL[r.condition]||r.condition||'—'}</span>
+                  {admin && (
+                    <button className="btn dash-row-action"
+                      onClick={(e)=>{ e.stopPropagation(); markReturned(r); }}
+                      title="Mark returned">
+                      ✓ Return
+                    </button>
+                  )}
                 </div>
               );
             })}

@@ -1654,3 +1654,16 @@ h1, h2, h3 {
 .stat-box.alert.info { border-bottom-color: var(--accent-info); }
 .stat-box.alert.info .stat-value { color: var(--accent-info); }
 
+/* Always-visible row action — touch-safe ≥44px tap target. Lives at the
+   right edge of "Currently out" rows on the dashboard for one-tap return. */
+.dash-row-action {
+  flex: none;
+  min-height: 36px;
+  padding: 6px 12px;
+  font-size: 12px; font-weight: 600;
+  letter-spacing: 0.04em;
+}
+@media (max-width: 540px) {
+  .dash-row-action { min-height: 44px; padding: 8px 14px; }
+}
+
