@@ -1849,9 +1849,34 @@ h1, h2, h3 {
    a vertical dashed line.
    ───────────────────────────────────────────────────────────────────────────── */
 .cal-toolbar {
-  display: flex; align-items: center; gap: 8px;
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
   margin-bottom: 12px;
 }
+
+/* View toggle: By item / By deployment — pill group at the start of the toolbar */
+.cal-view-toggle {
+  display: inline-flex;
+  background: var(--surface-1);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+  margin-right: 6px;
+}
+.cal-view-toggle button {
+  background: transparent; border: 0;
+  font-family: 'Manrope', sans-serif;
+  font-size: 11px; font-weight: 600; letter-spacing: 0.04em;
+  color: var(--text-mute, #9a9a9a);
+  padding: 7px 12px;
+  cursor: pointer;
+  transition: background 0.12s, color 0.12s;
+}
+.cal-view-toggle button:hover  { color: var(--text); }
+.cal-view-toggle button.on     {
+  background: var(--accent-info-bg);
+  color: var(--accent-info);
+}
+.cal-view-toggle button + button { border-left: 1px solid var(--border); }
 .cal-window-label {
   margin-left: auto;
   font-family: 'Manrope', sans-serif;

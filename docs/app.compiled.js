@@ -6085,10 +6085,17 @@ function DashSection({
 // 14-day windows. Falls back gracefully for events that pre-date the schema
 // migration and only have a single event_date.
 function CalendarTab({
-  onOpenDeployment
+  onOpenDeployment,
+  onOpenItem
 }) {
+  // 'item' (default): one row per master item, bars per active assignment.
+  //   Answers "where's my mannequin and when do I get it back?".
+  // 'deployment': one row per event, single bar spanning event_start → end.
+  //   Useful for the high-level "what's happening this fortnight" view.
+  const [view, setView] = useState('item');
   const [events, setEvents] = useState(null);
-  const [outRows, setOutRows] = useState([]);
+  const [eis, setEis] = useState([]);
+  const [items, setItems] = useState({});
   const [winStart, setWinStart] = useState(() => {
     const d = new Date();
     d.setHours(0, 0, 0, 0);
@@ -6099,29 +6106,42 @@ function CalendarTab({
   const winEnd = new Date(winStart);
   winEnd.setDate(winStart.getDate() + WINDOW_DAYS - 1);
   async function load() {
-    // Fetch events whose range intersects the visible window.
-    // SQL: event_end_date >= window_start AND event_start_date <= window_end
-    // (with fallback to event_date for legacy rows where the new fields are null).
     const winStartIso = winStart.toISOString().slice(0, 10);
     const winEndIso = winEnd.toISOString().slice(0, 10);
+
+    // Events whose date range intersects the visible window
     const {
       data: evs
-    } = await sb.from('events').select('id, name, event_date, event_start_date, event_end_date, location, workflow_state, departments').or(`and(event_end_date.gte.${winStartIso},event_start_date.lte.${winEndIso}),and(event_end_date.is.null,event_date.gte.${winStartIso},event_date.lte.${winEndIso})`).order('event_start_date', {
+    } = await sb.from('events').select('id, name, event_date, event_start_date, event_end_date, location, workflow_state, departments, load_in_at, load_out_at').or(`and(event_end_date.gte.${winStartIso},event_start_date.lte.${winEndIso}),and(event_end_date.is.null,event_date.gte.${winStartIso},event_date.lte.${winEndIso})`).order('event_start_date', {
       ascending: true,
       nullsFirst: false
     });
-    // Items currently out — used to detect overdue (event ended but items not returned)
+
+    // Active event_items — anything still 'out'. We'll filter to the window
+    // client-side because the date used per bar varies (packed_at /
+    // expected_return_date / event dates).
     const {
-      data: outs
-    } = await sb.from('event_items').select('event_id').eq('status', 'out');
+      data: eiRows
+    } = await sb.from('event_items').select('id, event_id, item_id, status, packed_at, expected_return_date').eq('status', 'out');
+
+    // Master items — needed for row labels in the item view
+    const itemIds = [...new Set((eiRows || []).map(e => e.item_id))];
+    let itemsMap = {};
+    if (itemIds.length) {
+      const {
+        data: its
+      } = await sb.from('items').select('id, name, category, storage_location').in('id', itemIds);
+      (its || []).forEach(it => {
+        itemsMap[it.id] = it;
+      });
+    }
     setEvents(evs || []);
-    setOutRows(outs || []);
+    setEis(eiRows || []);
+    setItems(itemsMap);
   }
   useEffect(() => {
     load();
   }, [winStart.getTime()]);
-
-  // Realtime — refetch on any event/event_items change inside the window
   useEffect(() => {
     const ch = sb.channel('calendar').on('postgres_changes', {
       event: '*',
@@ -6142,8 +6162,6 @@ function CalendarTab({
   const dayMs = 24 * 3600 * 1000;
   const today = new Date();
   today.setHours(0, 0, 0, 0);
-
-  // Build the day axis for the visible window
   const days = [];
   for (let i = 0; i < WINDOW_DAYS; i++) {
     const d = new Date(winStart);
@@ -6156,34 +6174,6 @@ function CalendarTab({
     const off = (dt.getTime() - winStart.getTime()) / dayMs;
     return off / WINDOW_DAYS * 100;
   }
-
-  // Group events by overdue / today / upcoming so the most-actionable rows sit on top
-  const outCountByEvent = {};
-  outRows.forEach(r => {
-    outCountByEvent[r.event_id] = (outCountByEvent[r.event_id] || 0) + 1;
-  });
-  const decorated = events.map(ev => {
-    const start = ev.event_start_date || ev.event_date;
-    const end = ev.event_end_date || ev.event_date || start;
-    if (!start) return null;
-    const startD = new Date(start + 'T00:00:00');
-    const endD = new Date(end + 'T00:00:00');
-    const itemsStillOut = outCountByEvent[ev.id] || 0;
-    const overdue = endD.getTime() < today.getTime() && itemsStillOut > 0;
-    return {
-      ev,
-      startD,
-      endD,
-      itemsStillOut,
-      overdue
-    };
-  }).filter(Boolean);
-
-  // Sort: overdue first, then chronological
-  decorated.sort((a, b) => {
-    if (a.overdue !== b.overdue) return a.overdue ? -1 : 1;
-    return a.startD.getTime() - b.startD.getTime();
-  });
   function shift(days) {
     setWinStart(prev => {
       const d = new Date(prev);
@@ -6197,11 +6187,100 @@ function CalendarTab({
     d.setDate(d.getDate() - 7);
     setWinStart(d);
   }
+
+  // ── Compute rows for the active view ───────────────────────────────────────
+  let rows = [];
+  let emptyText = '';
+  if (view === 'item') {
+    // Build per-item row: each event_item still 'out' yields a bar from its
+    // shipping start to its return (with sensible fallbacks). Multiple bars
+    // per item are possible (rare — same item assigned to two events) but
+    // supported.
+    const eventsById = {};
+    events.forEach(ev => {
+      eventsById[ev.id] = ev;
+    });
+    const byItem = {};
+    eis.forEach(ei => {
+      const ev = eventsById[ei.event_id];
+      const it = items[ei.item_id];
+      if (!ev || !it) return;
+      // Bar dates: prefer item-level overrides, fall back to event-level
+      const startSrc = ei.packed_at || ev.load_in_at || ev.event_start_date || ev.event_date;
+      const endSrc = ei.expected_return_date || ev.load_out_at || ev.event_end_date || ev.event_date;
+      if (!startSrc || !endSrc) return;
+      const startD = new Date(startSrc);
+      const endD = new Date(endSrc);
+      // Intersect with window
+      if (endD < winStart || startD > winEnd) return;
+      // Overdue: event end has passed but the item is still 'out' (workflow not closed)
+      const overdue = endD.getTime() < today.getTime() && ev.workflow_state !== 'closed';
+      if (!byItem[it.id]) byItem[it.id] = {
+        item: it,
+        bars: []
+      };
+      byItem[it.id].bars.push({
+        ei,
+        ev,
+        startD,
+        endD,
+        overdue
+      });
+    });
+    rows = Object.values(byItem);
+    rows.sort((a, b) => {
+      const aOver = a.bars.some(x => x.overdue);
+      const bOver = b.bars.some(x => x.overdue);
+      if (aOver !== bOver) return aOver ? -1 : 1;
+      const aMin = Math.min(...a.bars.map(x => x.startD.getTime()));
+      const bMin = Math.min(...b.bars.map(x => x.startD.getTime()));
+      return aMin - bMin;
+    });
+    emptyText = 'No items out in this window.';
+  } else {
+    // Deployment view — one bar per event spanning its date range
+    const outCountByEvent = {};
+    eis.forEach(r => {
+      outCountByEvent[r.event_id] = (outCountByEvent[r.event_id] || 0) + 1;
+    });
+    const decorated = events.map(ev => {
+      const start = ev.event_start_date || ev.event_date;
+      const end = ev.event_end_date || ev.event_date || start;
+      if (!start) return null;
+      const startD = new Date(start + 'T00:00:00');
+      const endD = new Date(end + 'T00:00:00');
+      const itemsStillOut = outCountByEvent[ev.id] || 0;
+      const overdue = endD.getTime() < today.getTime() && itemsStillOut > 0;
+      return {
+        ev,
+        startD,
+        endD,
+        itemsStillOut,
+        overdue
+      };
+    }).filter(Boolean);
+    decorated.sort((a, b) => {
+      if (a.overdue !== b.overdue) return a.overdue ? -1 : 1;
+      return a.startD.getTime() - b.startD.getTime();
+    });
+    rows = decorated;
+    emptyText = 'No deployments in this window.';
+  }
   return /*#__PURE__*/React.createElement("div", {
     className: "container"
   }, /*#__PURE__*/React.createElement("div", {
     className: "cal-toolbar"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "cal-view-toggle"
   }, /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    className: view === 'item' ? 'on' : '',
+    onClick: () => setView('item')
+  }, "By item"), /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    className: view === 'deployment' ? 'on' : '',
+    onClick: () => setView('deployment')
+  }, "By deployment")), /*#__PURE__*/React.createElement("button", {
     className: "btn sm",
     onClick: () => shift(-14)
   }, "\u2190 Earlier"), /*#__PURE__*/React.createElement("button", {
@@ -6219,9 +6298,9 @@ function CalendarTab({
     month: 'short',
     day: 'numeric',
     year: 'numeric'
-  }))), decorated.length === 0 ? /*#__PURE__*/React.createElement("div", {
+  }))), rows.length === 0 ? /*#__PURE__*/React.createElement("div", {
     className: "empty"
-  }, "No deployments in this window.") : /*#__PURE__*/React.createElement("div", {
+  }, emptyText) : /*#__PURE__*/React.createElement("div", {
     className: "cal-grid"
   }, /*#__PURE__*/React.createElement("div", {
     className: "cal-header"
@@ -6238,20 +6317,60 @@ function CalendarTab({
     }, d.toLocaleDateString(undefined, {
       weekday: 'narrow'
     })));
-  })), decorated.map(({
+  })), view === 'item' ? rows.map(({
+    item,
+    bars
+  }) => /*#__PURE__*/React.createElement("div", {
+    className: "cal-row",
+    key: item.id
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "cal-row-label",
+    title: `${item.name}${item.storage_location ? ' · ' + item.storage_location : ''}`,
+    onClick: () => onOpenItem?.(item.id),
+    style: {
+      cursor: 'pointer'
+    }
+  }, item.name), /*#__PURE__*/React.createElement("div", {
+    className: "cal-row-track"
+  }, bars.map(({
+    ei,
+    ev,
+    startD,
+    endD,
+    overdue
+  }, i) => {
+    const drawStart = startD < winStart ? winStart : startD;
+    const drawEnd = endD > winEnd ? winEnd : endD;
+    const left = offsetPct(drawStart);
+    const widthPct = Math.max(100 / WINDOW_DAYS, ((drawEnd.getTime() - drawStart.getTime()) / dayMs + 1) / WINDOW_DAYS * 100);
+    const state = ev.workflow_state || 'approved';
+    const cls = overdue ? 'cal-bar-overdue' : `cal-bar-state-${state}`;
+    return /*#__PURE__*/React.createElement("div", {
+      key: i,
+      className: `cal-bar ${cls}`,
+      style: {
+        left: `${left}%`,
+        width: `${widthPct}%`
+      },
+      onClick: e => {
+        e.stopPropagation();
+        onOpenDeployment(ev.id);
+      },
+      title: `${item.name} at ${ev.name} · ${state}${overdue ? ' · OVERDUE' : ''}`
+    }, /*#__PURE__*/React.createElement("span", {
+      className: "cal-bar-text"
+    }, overdue && /*#__PURE__*/React.createElement(React.Fragment, null, "\u26A0 "), ev.name));
+  })))) : rows.map(({
     ev,
     startD,
     endD,
     overdue,
     itemsStillOut
   }) => {
-    // Clamp the bar to the visible window
     const drawStart = startD < winStart ? winStart : startD;
     const drawEnd = endD > winEnd ? winEnd : endD;
     const left = offsetPct(drawStart);
-    const widthPct = Math.max(100 / WINDOW_DAYS,
-    // min 1 day
-    ((drawEnd.getTime() - drawStart.getTime()) / dayMs + 1) / WINDOW_DAYS * 100);
+    const widthPct = Math.max(100 / WINDOW_DAYS, ((drawEnd.getTime() - drawStart.getTime()) / dayMs + 1) / WINDOW_DAYS * 100);
     const state = ev.workflow_state || 'approved';
     const cls = overdue ? 'cal-bar-overdue' : `cal-bar-state-${state}`;
     return /*#__PURE__*/React.createElement("div", {
@@ -7015,6 +7134,10 @@ function App() {
     onOpenDeployment: id => {
       setTab('events');
       setOpenEventId(id);
+    },
+    onOpenItem: id => {
+      setTab('items');
+      setOpenItemId(id);
     }
   }), loginOpen && /*#__PURE__*/React.createElement(AdminLoginModal, {
     onLogin: handleLogin,
