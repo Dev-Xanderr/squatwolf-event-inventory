@@ -1843,6 +1843,63 @@ h1, h2, h3 {
   padding: 8px 0;
 }
 
+/* Contacts list inside the sidebar */
+.contact-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.contact {
+  background: var(--surface-2, #161616);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px 10px;
+}
+.contact-head {
+  display: flex; gap: 8px; align-items: flex-start;
+}
+.contact-name {
+  font-family: 'Manrope', sans-serif;
+  font-size: 13px; font-weight: 700;
+  color: var(--text);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.contact-role {
+  font-family: 'Manrope', sans-serif;
+  font-size: 11px;
+  color: var(--text-mute, #7A7A7A);
+  margin-top: 1px;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.contact-action {
+  background: transparent; border: 0;
+  color: var(--text-mute, #7A7A7A);
+  cursor: pointer;
+  padding: 2px 6px;
+  font-size: 12px;
+}
+.contact-action:hover { color: var(--text); }
+.contact-links {
+  display: flex; flex-wrap: wrap; gap: 6px;
+  margin-top: 6px;
+}
+.contact-link {
+  display: inline-flex; align-items: center; gap: 4px;
+  font-family: 'Manrope', sans-serif;
+  font-size: 11px; font-weight: 600;
+  color: var(--accent-info);
+  text-decoration: none;
+  background: var(--accent-info-bg);
+  border: 1px solid var(--accent-info-bd);
+  border-radius: 999px;
+  padding: 3px 9px;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+}
+.contact-link:hover { filter: brightness(1.15); }
+.contact-notes {
+  font-family: 'Manrope', sans-serif;
+  font-size: 11px; color: var(--text-mute, #7A7A7A);
+  margin-top: 6px; line-height: 1.4;
+  white-space: pre-wrap; word-break: break-word;
+}
+
 /* Pre-flight banner at the top of upcoming-deployment detail.
    Compact one-line summary by default; expands to show issue rows on click. */
 .preflight {

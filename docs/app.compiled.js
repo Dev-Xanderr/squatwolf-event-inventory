@@ -2830,6 +2830,263 @@ function WorkflowTracker({
   }, "Deployment closed \xB7 ", fmtTime(event.workflow_updated_at)));
 }
 
+// ---------- contacts panel (sidebar) ----------
+// Per-deployment people: venue mgr, logistics, vendor PoCs, etc. tel: and
+// mailto: links work great on mobile. Admins can add/edit/delete.
+function ContactsPanel({
+  event,
+  admin
+}) {
+  const [contacts, setContacts] = useState(null);
+  const [editing, setEditing] = useState(null); // { id?, name, role, phone, email, notes } | 'new'
+
+  async function load() {
+    const {
+      data
+    } = await sb.from('event_contacts').select('*').eq('event_id', event.id).order('created_at');
+    setContacts(data || []);
+  }
+  useEffect(() => {
+    load();
+  }, [event.id]);
+
+  // Realtime — updates flow across clients
+  useEffect(() => {
+    const ch = sb.channel(`event-contacts-${event.id}`).on('postgres_changes', {
+      event: '*',
+      schema: 'public',
+      table: 'event_contacts',
+      filter: `event_id=eq.${event.id}`
+    }, load).subscribe();
+    return () => sb.removeChannel(ch);
+  }, [event.id]);
+  async function remove(c) {
+    if (!(await confirm({
+      title: 'Remove contact?',
+      body: `Remove ${c.name} from this deployment?`,
+      danger: true,
+      confirmLabel: 'Remove'
+    }))) return;
+    const {
+      error
+    } = await sb.from('event_contacts').delete().eq('id', c.id);
+    if (error) toast(`Couldn't remove: ${friendlyError(error)}`, 'err');
+  }
+  return /*#__PURE__*/React.createElement("div", {
+    className: "sidebar-card"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "sidebar-card-head"
+  }, /*#__PURE__*/React.createElement("span", null, "Contacts"), admin && /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    className: "link-btn",
+    onClick: () => setEditing('new')
+  }, "+ Add")), contacts === null ? /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 11,
+      color: '#7A7A7A',
+      padding: '4px 0'
+    }
+  }, "Loading\u2026") : contacts.length === 0 ? /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 11,
+      color: '#7A7A7A',
+      padding: '4px 0',
+      letterSpacing: '0.04em'
+    }
+  }, "No contacts yet \u2014 add venue, vendor, or internal PoCs.") : /*#__PURE__*/React.createElement("ul", {
+    className: "contact-list"
+  }, contacts.map(c => /*#__PURE__*/React.createElement("li", {
+    key: c.id,
+    className: "contact"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "contact-head"
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      flex: 1,
+      minWidth: 0
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "contact-name"
+  }, c.name), c.role && /*#__PURE__*/React.createElement("div", {
+    className: "contact-role"
+  }, c.role)), admin && /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: 'flex',
+      gap: 4,
+      flex: 'none'
+    }
+  }, /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    className: "contact-action",
+    onClick: () => setEditing(c),
+    title: "Edit"
+  }, "\u270E"), /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    className: "contact-action",
+    onClick: () => remove(c),
+    title: "Remove"
+  }, "\u2715"))), (c.phone || c.email) && /*#__PURE__*/React.createElement("div", {
+    className: "contact-links"
+  }, c.phone && /*#__PURE__*/React.createElement("a", {
+    className: "contact-link",
+    href: `tel:${c.phone.replace(/[^+\d]/g, '')}`
+  }, "\uD83D\uDCDE ", c.phone), c.email && /*#__PURE__*/React.createElement("a", {
+    className: "contact-link",
+    href: `mailto:${c.email}`
+  }, "\u2709 ", c.email)), c.notes && /*#__PURE__*/React.createElement("div", {
+    className: "contact-notes"
+  }, c.notes)))), editing && /*#__PURE__*/React.createElement(ContactFormModal, {
+    admin: admin,
+    event: event,
+    contact: editing === 'new' ? null : editing,
+    onClose: () => setEditing(null),
+    onSaved: () => setEditing(null)
+  }));
+}
+function ContactFormModal({
+  admin,
+  event,
+  contact,
+  onClose,
+  onSaved
+}) {
+  const isEdit = !!contact;
+  const [name, setName] = useState(contact?.name || '');
+  const [role, setRole] = useState(contact?.role || '');
+  const [phone, setPhone] = useState(contact?.phone || '');
+  const [email, setEmail] = useState(contact?.email || '');
+  const [notes, setNotes] = useState(contact?.notes || '');
+  const [err, setErr] = useState('');
+  const [saving, setSaving] = useState(false);
+  async function save(e) {
+    e.preventDefault();
+    if (!name.trim()) return setErr('Name required');
+    setSaving(true);
+    const payload = {
+      name: name.trim(),
+      role: role.trim(),
+      phone: phone.trim(),
+      email: email.trim(),
+      notes: notes.trim()
+    };
+    try {
+      if (isEdit) {
+        const {
+          error
+        } = await sb.from('event_contacts').update(payload).eq('id', contact.id);
+        if (error) throw error;
+      } else {
+        const {
+          error
+        } = await sb.from('event_contacts').insert({
+          ...payload,
+          event_id: event.id,
+          created_by: admin.name
+        });
+        if (error) throw error;
+      }
+      onSaved();
+      onClose();
+    } catch (e) {
+      setErr(friendlyError(e));
+      setSaving(false);
+    }
+  }
+  async function del() {
+    if (!(await confirm({
+      title: 'Remove contact?',
+      body: `Remove ${contact.name} from this deployment?`,
+      danger: true,
+      confirmLabel: 'Remove'
+    }))) return;
+    await sb.from('event_contacts').delete().eq('id', contact.id);
+    onSaved();
+    onClose();
+  }
+  return /*#__PURE__*/React.createElement("div", {
+    className: "backdrop",
+    onClick: onClose
+  }, /*#__PURE__*/React.createElement("form", {
+    className: "modal",
+    style: {
+      maxWidth: 420
+    },
+    onClick: e => e.stopPropagation(),
+    onSubmit: save
+  }, /*#__PURE__*/React.createElement("h2", null, isEdit ? 'Edit contact' : 'Add contact'), /*#__PURE__*/React.createElement("div", {
+    className: "field"
+  }, /*#__PURE__*/React.createElement("label", null, "Name"), /*#__PURE__*/React.createElement("input", {
+    value: name,
+    onChange: e => setName(e.target.value),
+    placeholder: "e.g. Ahmed Rashid",
+    autoFocus: true
+  })), /*#__PURE__*/React.createElement("div", {
+    className: "field"
+  }, /*#__PURE__*/React.createElement("label", null, "Role / company"), /*#__PURE__*/React.createElement("input", {
+    value: role,
+    onChange: e => setRole(e.target.value),
+    placeholder: "e.g. Venue manager \xB7 Coca-Cola Arena"
+  })), /*#__PURE__*/React.createElement("div", {
+    className: "field"
+  }, /*#__PURE__*/React.createElement("label", null, "Phone"), /*#__PURE__*/React.createElement("input", {
+    type: "tel",
+    value: phone,
+    onChange: e => setPhone(e.target.value),
+    placeholder: "+971 50 \u2026"
+  })), /*#__PURE__*/React.createElement("div", {
+    className: "field"
+  }, /*#__PURE__*/React.createElement("label", null, "Email"), /*#__PURE__*/React.createElement("input", {
+    type: "email",
+    value: email,
+    onChange: e => setEmail(e.target.value),
+    placeholder: "ahmed@\u2026"
+  })), /*#__PURE__*/React.createElement("div", {
+    className: "field"
+  }, /*#__PURE__*/React.createElement("label", null, "Notes"), /*#__PURE__*/React.createElement("textarea", {
+    value: notes,
+    onChange: e => setNotes(e.target.value),
+    rows: "2",
+    placeholder: "e.g. Best to call between 9\u201311am",
+    style: {
+      width: '100%',
+      background: '#1a1a1a',
+      border: '1px solid #2a2a2a',
+      color: '#FAFAFA',
+      padding: '8px 10px',
+      fontFamily: "'Manrope',sans-serif",
+      fontSize: 13,
+      resize: 'vertical'
+    }
+  })), err && /*#__PURE__*/React.createElement("div", {
+    className: "err"
+  }, err), /*#__PURE__*/React.createElement("div", {
+    className: "actions",
+    style: {
+      justifyContent: 'space-between'
+    }
+  }, isEdit ? /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    className: "btn ghost",
+    onClick: del,
+    style: {
+      color: 'var(--accent-bad)'
+    }
+  }, "Remove") : /*#__PURE__*/React.createElement("span", null), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: 'flex',
+      gap: 8
+    }
+  }, /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    className: "btn ghost",
+    onClick: onClose
+  }, "Cancel"), /*#__PURE__*/React.createElement("button", {
+    type: "submit",
+    className: "btn primary",
+    disabled: saving
+  }, saving ? 'Saving…' : isEdit ? 'Save' : 'Add')))));
+}
+
 // ---------- deployment comments / internal notes ----------
 // Append-only feed per deployment. All signed-in users can read; admins post.
 // Realtime channel pushes new comments to every open client.
@@ -4690,6 +4947,9 @@ function EventDetail({
     admin: admin,
     isMaster: admin?.role === 'master',
     onAdvance: setWorkflow
+  }), /*#__PURE__*/React.createElement(ContactsPanel, {
+    event: currentEvent,
+    admin: admin
   }))), assignOpen && /*#__PURE__*/React.createElement(AssignItemsModal, {
     event: event,
     admin: admin,

@@ -1840,6 +1840,168 @@ function WorkflowTracker({ event, admin, isMaster, onAdvance }) {
   );
 }
 
+// ---------- contacts panel (sidebar) ----------
+// Per-deployment people: venue mgr, logistics, vendor PoCs, etc. tel: and
+// mailto: links work great on mobile. Admins can add/edit/delete.
+function ContactsPanel({ event, admin }) {
+  const [contacts, setContacts] = useState(null);
+  const [editing,  setEditing]  = useState(null);   // { id?, name, role, phone, email, notes } | 'new'
+
+  async function load() {
+    const { data } = await sb.from('event_contacts')
+      .select('*').eq('event_id', event.id).order('created_at');
+    setContacts(data || []);
+  }
+  useEffect(() => { load(); }, [event.id]);
+
+  // Realtime — updates flow across clients
+  useEffect(() => {
+    const ch = sb.channel(`event-contacts-${event.id}`)
+      .on('postgres_changes',
+        { event: '*', schema: 'public', table: 'event_contacts', filter: `event_id=eq.${event.id}` },
+        load)
+      .subscribe();
+    return () => sb.removeChannel(ch);
+  }, [event.id]);
+
+  async function remove(c) {
+    if (!await confirm({ title: 'Remove contact?', body: `Remove ${c.name} from this deployment?`, danger: true, confirmLabel: 'Remove' })) return;
+    const { error } = await sb.from('event_contacts').delete().eq('id', c.id);
+    if (error) toast(`Couldn't remove: ${friendlyError(error)}`, 'err');
+  }
+
+  return (
+    <div className="sidebar-card">
+      <div className="sidebar-card-head">
+        <span>Contacts</span>
+        {admin && (
+          <button type="button" className="link-btn" onClick={()=>setEditing('new')}>+ Add</button>
+        )}
+      </div>
+      {contacts === null ? (
+        <div style={{fontSize:11,color:'#7A7A7A',padding:'4px 0'}}>Loading…</div>
+      ) : contacts.length === 0 ? (
+        <div style={{fontSize:11,color:'#7A7A7A',padding:'4px 0',letterSpacing:'0.04em'}}>
+          No contacts yet — add venue, vendor, or internal PoCs.
+        </div>
+      ) : (
+        <ul className="contact-list">
+          {contacts.map(c => (
+            <li key={c.id} className="contact">
+              <div className="contact-head">
+                <div style={{flex:1, minWidth:0}}>
+                  <div className="contact-name">{c.name}</div>
+                  {c.role && <div className="contact-role">{c.role}</div>}
+                </div>
+                {admin && (
+                  <div style={{display:'flex',gap:4,flex:'none'}}>
+                    <button type="button" className="contact-action" onClick={()=>setEditing(c)} title="Edit">✎</button>
+                    <button type="button" className="contact-action" onClick={()=>remove(c)} title="Remove">✕</button>
+                  </div>
+                )}
+              </div>
+              {(c.phone || c.email) && (
+                <div className="contact-links">
+                  {c.phone && <a className="contact-link" href={`tel:${c.phone.replace(/[^+\d]/g,'')}`}>📞 {c.phone}</a>}
+                  {c.email && <a className="contact-link" href={`mailto:${c.email}`}>✉ {c.email}</a>}
+                </div>
+              )}
+              {c.notes && <div className="contact-notes">{c.notes}</div>}
+            </li>
+          ))}
+        </ul>
+      )}
+      {editing && (
+        <ContactFormModal admin={admin} event={event}
+          contact={editing === 'new' ? null : editing}
+          onClose={()=>setEditing(null)}
+          onSaved={()=>setEditing(null)} />
+      )}
+    </div>
+  );
+}
+
+function ContactFormModal({ admin, event, contact, onClose, onSaved }) {
+  const isEdit = !!contact;
+  const [name,  setName]  = useState(contact?.name  || '');
+  const [role,  setRole]  = useState(contact?.role  || '');
+  const [phone, setPhone] = useState(contact?.phone || '');
+  const [email, setEmail] = useState(contact?.email || '');
+  const [notes, setNotes] = useState(contact?.notes || '');
+  const [err,   setErr]   = useState('');
+  const [saving,setSaving]= useState(false);
+
+  async function save(e) {
+    e.preventDefault();
+    if (!name.trim()) return setErr('Name required');
+    setSaving(true);
+    const payload = {
+      name: name.trim(), role: role.trim(),
+      phone: phone.trim(), email: email.trim(),
+      notes: notes.trim(),
+    };
+    try {
+      if (isEdit) {
+        const { error } = await sb.from('event_contacts').update(payload).eq('id', contact.id);
+        if (error) throw error;
+      } else {
+        const { error } = await sb.from('event_contacts').insert({
+          ...payload, event_id: event.id, created_by: admin.name,
+        });
+        if (error) throw error;
+      }
+      onSaved();
+      onClose();
+    } catch (e) {
+      setErr(friendlyError(e));
+      setSaving(false);
+    }
+  }
+
+  async function del() {
+    if (!await confirm({ title: 'Remove contact?', body: `Remove ${contact.name} from this deployment?`, danger: true, confirmLabel: 'Remove' })) return;
+    await sb.from('event_contacts').delete().eq('id', contact.id);
+    onSaved(); onClose();
+  }
+
+  return (
+    <div className="backdrop" onClick={onClose}>
+      <form className="modal" style={{maxWidth:420}} onClick={e=>e.stopPropagation()} onSubmit={save}>
+        <h2>{isEdit ? 'Edit contact' : 'Add contact'}</h2>
+        <div className="field"><label>Name</label>
+          <input value={name} onChange={e=>setName(e.target.value)} placeholder="e.g. Ahmed Rashid" autoFocus />
+        </div>
+        <div className="field"><label>Role / company</label>
+          <input value={role} onChange={e=>setRole(e.target.value)} placeholder="e.g. Venue manager · Coca-Cola Arena" />
+        </div>
+        <div className="field"><label>Phone</label>
+          <input type="tel" value={phone} onChange={e=>setPhone(e.target.value)} placeholder="+971 50 …" />
+        </div>
+        <div className="field"><label>Email</label>
+          <input type="email" value={email} onChange={e=>setEmail(e.target.value)} placeholder="ahmed@…" />
+        </div>
+        <div className="field"><label>Notes</label>
+          <textarea value={notes} onChange={e=>setNotes(e.target.value)} rows="2"
+            placeholder="e.g. Best to call between 9–11am"
+            style={{width:'100%',background:'#1a1a1a',border:'1px solid #2a2a2a',color:'#FAFAFA',padding:'8px 10px',fontFamily:"'Manrope',sans-serif",fontSize:13,resize:'vertical'}} />
+        </div>
+        {err && <div className="err">{err}</div>}
+        <div className="actions" style={{justifyContent:'space-between'}}>
+          {isEdit
+            ? <button type="button" className="btn ghost" onClick={del} style={{color:'var(--accent-bad)'}}>Remove</button>
+            : <span />}
+          <div style={{display:'flex',gap:8}}>
+            <button type="button" className="btn ghost" onClick={onClose}>Cancel</button>
+            <button type="submit" className="btn primary" disabled={saving}>
+              {saving ? 'Saving…' : (isEdit ? 'Save' : 'Add')}
+            </button>
+          </div>
+        </div>
+      </form>
+    </div>
+  );
+}
+
 // ---------- deployment comments / internal notes ----------
 // Append-only feed per deployment. All signed-in users can read; admins post.
 // Realtime channel pushes new comments to every open client.
@@ -3076,6 +3238,7 @@ function EventDetail({ event, admin, onBack }) {
 
         <aside className="deploy-sidebar">
           <WorkflowTracker event={currentEvent} admin={admin} isMaster={admin?.role === 'master'} onAdvance={setWorkflow} />
+          <ContactsPanel event={currentEvent} admin={admin} />
         </aside>
       </div>
 
