@@ -74,6 +74,40 @@ function qrSvgString(text) {
   return qr.createSvgTag({ scalable: true, margin: 0 });
 }
 
+// ---------- Item thumbnail primitive ----------
+// One small component used on every row (dashboard, items grid, etc.).
+// `useItemThumbs()` fetches the photo URL per item id once: prefer the oldest
+// master-level image, fall back to the oldest event-level image so items only
+// photographed during a deployment still get a thumbnail.
+function useItemThumbs() {
+  const [thumbs, setThumbs] = useState({});
+  useEffect(() => {
+    let cancelled = false;
+    sb.from('attachments')
+      .select('item_id, url, mime_type, event_item_id, uploaded_at')
+      .like('mime_type', 'image/%')
+      .order('uploaded_at', { ascending: true })
+      .then(({ data }) => {
+        if (cancelled) return;
+        const t = {};
+        (data || []).forEach(a => { if (a.event_item_id == null && !t[a.item_id]) t[a.item_id] = a.url; });
+        (data || []).forEach(a => { if (!t[a.item_id]) t[a.item_id] = a.url; });
+        setThumbs(t);
+      });
+    return () => { cancelled = true; };
+  }, []);
+  return thumbs;
+}
+
+function ItemThumb({ url, name, category, size = 40, className = '' }) {
+  const initial = (category || name || '?').trim().charAt(0).toUpperCase();
+  const cls = `item-thumb item-thumb-${size}${className ? ' ' + className : ''}`;
+  if (url) {
+    return <span className={cls}><img src={url} alt="" loading="lazy" /></span>;
+  }
+  return <span className={`${cls} item-thumb-fallback`}>{initial}</span>;
+}
+
 // ---------- CSV helpers ----------
 function toCsv(rows, headers) {
   const esc = (v) => {
@@ -2260,7 +2294,7 @@ function EventDetail({ event, admin, onBack }) {
 function ItemsTab({ admin, openItemId, onOpened }) {
   const [items, setItems]       = useState([]);
   const [outMap, setOutMap]     = useState({}); // item_id → event name for checked-out items
-  const [thumbs, setThumbs]     = useState({}); // item_id → first photo URL (master-level only)
+  const thumbs                  = useItemThumbs();
   const [query, setQuery]       = useState('');
   const [catFilter, setCat]     = useState('all');
   const [condFilter, setCond]   = useState('all');
@@ -2295,18 +2329,6 @@ function ItemsTab({ admin, openItemId, onOpened }) {
         const m = {};
         (data||[]).forEach(r => { m[r.item_id] = r.events?.name || 'Unknown'; });
         setOutMap(m);
-      });
-    // Card thumbnail per item. Prefer the oldest master-level photo
-    // (event_item_id IS NULL); fall back to the oldest event-level photo
-    // so items photographed only during a deployment still get a tile image.
-    sb.from('attachments').select('item_id, url, mime_type, event_item_id, uploaded_at')
-      .like('mime_type', 'image/%')
-      .order('uploaded_at', { ascending: true })
-      .then(({ data }) => {
-        const t = {};
-        (data||[]).forEach(a => { if (a.event_item_id == null && !t[a.item_id]) t[a.item_id] = a.url; });
-        (data||[]).forEach(a => { if (!t[a.item_id]) t[a.item_id] = a.url; });
-        setThumbs(t);
       });
   }, []);
 
@@ -2473,6 +2495,7 @@ function DashboardTab({ admin, onGoTo }) {
   const [allEis, setAllEis] = useState([]);  // every event_item (used for "never used" calc)
   const [recent, setRecent] = useState([]);
   const [viewing, setViewing] = useState(null);
+  const thumbs = useItemThumbs();
 
   async function load() {
     try {
@@ -2574,7 +2597,8 @@ function DashboardTab({ admin, onGoTo }) {
             ? Math.floor((Date.now() - new Date(r.events.event_date).getTime())/(24*3600*1000))
             : null;
           return (
-            <div className="dash-row" key={r.id} onClick={()=>it && setViewing(it)}>
+            <div className="dash-row dash-row-overdue" key={r.id} onClick={()=>it && setViewing(it)}>
+              <ItemThumb url={thumbs[r.item_id]} name={it?.name} category={it?.category} />
               <div style={{flex:1,minWidth:0}}>
                 <div className="dash-row-name">{it?.name || '(missing item)'}</div>
                 <div className="dash-row-sub">Out at {r.events?.name||'—'} · {days!=null?`${days}d past event`:'—'}</div>
@@ -2592,7 +2616,8 @@ function DashboardTab({ admin, onGoTo }) {
         allClear
       >
         {needsAttention.map(it => (
-          <div className="dash-row" key={it.id} onClick={()=>setViewing(it)}>
+          <div className="dash-row dash-row-attention" key={it.id} onClick={()=>setViewing(it)}>
+            <ItemThumb url={thumbs[it.id]} name={it.name} category={it.category} />
             <div style={{flex:1,minWidth:0}}>
               <div className="dash-row-name">{it.name}</div>
               <div className="dash-row-sub">{it.category||'—'} · {it.storage_location||'No storage set'}</div>
@@ -2617,7 +2642,8 @@ function DashboardTab({ admin, onGoTo }) {
             {rows.map(r => {
               const it = itemMap[r.item_id];
               return (
-                <div className="dash-row" key={r.id} onClick={()=>it && setViewing(it)}>
+                <div className="dash-row dash-row-out" key={r.id} onClick={()=>it && setViewing(it)}>
+                  <ItemThumb url={thumbs[r.item_id]} name={it?.name} category={it?.category} />
                   <div style={{flex:1,minWidth:0}}>
                     <div className="dash-row-name">{it?.name || '(missing item)'}</div>
                     <div className="dash-row-sub">At: {r.current_location||'—'}</div>
@@ -2635,6 +2661,7 @@ function DashboardTab({ admin, onGoTo }) {
         <DashSection title="Never assigned" emptyText="">
           {neverUsed.slice(0, 12).map(it => (
             <div className="dash-row" key={it.id} onClick={()=>setViewing(it)}>
+              <ItemThumb url={thumbs[it.id]} name={it.name} category={it.category} />
               <div style={{flex:1,minWidth:0}}>
                 <div className="dash-row-name">{it.name}</div>
                 <div className="dash-row-sub">{it.category||'—'} · {it.storage_location||'No storage set'}</div>
@@ -2652,18 +2679,22 @@ function DashboardTab({ admin, onGoTo }) {
 
       {/* Recent activity */}
       <DashSection title="Recent activity" emptyText="No activity yet.">
-        {recent.map(ev => (
-          <div className="dash-row" key={ev.id} onClick={()=>{
-            const it = itemMap[ev.item_id]; if (it) setViewing(it);
-          }}>
-            <div style={{flex:1,minWidth:0}}>
-              <div className="dash-row-name" style={{fontSize:14}}>
-                {actionLabel(ev.action)}{itemMap[ev.item_id] ? ` · ${itemMap[ev.item_id].name}` : ''}
+        {recent.map(ev => {
+          const it = itemMap[ev.item_id];
+          return (
+            <div className="dash-row" key={ev.id} onClick={()=>{
+              if (it) setViewing(it);
+            }}>
+              <ItemThumb url={thumbs[ev.item_id]} name={it?.name} category={it?.category} />
+              <div style={{flex:1,minWidth:0}}>
+                <div className="dash-row-name" style={{fontSize:14}}>
+                  {actionLabel(ev.action)}{it ? ` · ${it.name}` : ''}
+                </div>
+                <div className="dash-row-sub">{ev.changed_by} · {fmtTime(ev.changed_at)}</div>
               </div>
-              <div className="dash-row-sub">{ev.changed_by} · {fmtTime(ev.changed_at)}</div>
             </div>
-          </div>
-        ))}
+          );
+        })}
       </DashSection>
 
       {viewing && (

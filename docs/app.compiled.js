@@ -120,6 +120,59 @@ function qrSvgString(text) {
   });
 }
 
+// ---------- Item thumbnail primitive ----------
+// One small component used on every row (dashboard, items grid, etc.).
+// `useItemThumbs()` fetches the photo URL per item id once: prefer the oldest
+// master-level image, fall back to the oldest event-level image so items only
+// photographed during a deployment still get a thumbnail.
+function useItemThumbs() {
+  const [thumbs, setThumbs] = useState({});
+  useEffect(() => {
+    let cancelled = false;
+    sb.from('attachments').select('item_id, url, mime_type, event_item_id, uploaded_at').like('mime_type', 'image/%').order('uploaded_at', {
+      ascending: true
+    }).then(({
+      data
+    }) => {
+      if (cancelled) return;
+      const t = {};
+      (data || []).forEach(a => {
+        if (a.event_item_id == null && !t[a.item_id]) t[a.item_id] = a.url;
+      });
+      (data || []).forEach(a => {
+        if (!t[a.item_id]) t[a.item_id] = a.url;
+      });
+      setThumbs(t);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+  return thumbs;
+}
+function ItemThumb({
+  url,
+  name,
+  category,
+  size = 40,
+  className = ''
+}) {
+  const initial = (category || name || '?').trim().charAt(0).toUpperCase();
+  const cls = `item-thumb item-thumb-${size}${className ? ' ' + className : ''}`;
+  if (url) {
+    return /*#__PURE__*/React.createElement("span", {
+      className: cls
+    }, /*#__PURE__*/React.createElement("img", {
+      src: url,
+      alt: "",
+      loading: "lazy"
+    }));
+  }
+  return /*#__PURE__*/React.createElement("span", {
+    className: `${cls} item-thumb-fallback`
+  }, initial);
+}
+
 // ---------- CSV helpers ----------
 function toCsv(rows, headers) {
   const esc = v => {
@@ -3525,7 +3578,7 @@ function ItemsTab({
 }) {
   const [items, setItems] = useState([]);
   const [outMap, setOutMap] = useState({}); // item_id → event name for checked-out items
-  const [thumbs, setThumbs] = useState({}); // item_id → first photo URL (master-level only)
+  const thumbs = useItemThumbs();
   const [query, setQuery] = useState('');
   const [catFilter, setCat] = useState('all');
   const [condFilter, setCond] = useState('all');
@@ -3563,23 +3616,6 @@ function ItemsTab({
         m[r.item_id] = r.events?.name || 'Unknown';
       });
       setOutMap(m);
-    });
-    // Card thumbnail per item. Prefer the oldest master-level photo
-    // (event_item_id IS NULL); fall back to the oldest event-level photo
-    // so items photographed only during a deployment still get a tile image.
-    sb.from('attachments').select('item_id, url, mime_type, event_item_id, uploaded_at').like('mime_type', 'image/%').order('uploaded_at', {
-      ascending: true
-    }).then(({
-      data
-    }) => {
-      const t = {};
-      (data || []).forEach(a => {
-        if (a.event_item_id == null && !t[a.item_id]) t[a.item_id] = a.url;
-      });
-      (data || []).forEach(a => {
-        if (!t[a.item_id]) t[a.item_id] = a.url;
-      });
-      setThumbs(t);
     });
   }, []);
 
@@ -3791,6 +3827,7 @@ function DashboardTab({
   const [allEis, setAllEis] = useState([]); // every event_item (used for "never used" calc)
   const [recent, setRecent] = useState([]);
   const [viewing, setViewing] = useState(null);
+  const thumbs = useItemThumbs();
   async function load() {
     try {
       const [itemsRes, outRes, allRes, hist] = await Promise.all([sb.from('items').select('*').order('name'), sb.from('event_items').select('*, events(id, name, event_date)').eq('status', 'out'), sb.from('event_items').select('item_id'), sb.from('history').select('*').order('changed_at', {
@@ -3905,10 +3942,14 @@ function DashboardTab({
     const it = itemMap[r.item_id];
     const days = r.events?.event_date ? Math.floor((Date.now() - new Date(r.events.event_date).getTime()) / (24 * 3600 * 1000)) : null;
     return /*#__PURE__*/React.createElement("div", {
-      className: "dash-row",
+      className: "dash-row dash-row-overdue",
       key: r.id,
       onClick: () => it && setViewing(it)
-    }, /*#__PURE__*/React.createElement("div", {
+    }, /*#__PURE__*/React.createElement(ItemThumb, {
+      url: thumbs[r.item_id],
+      name: it?.name,
+      category: it?.category
+    }), /*#__PURE__*/React.createElement("div", {
       style: {
         flex: 1,
         minWidth: 0
@@ -3925,10 +3966,14 @@ function DashboardTab({
     emptyText: "ALL CLEAR \u2014 EVERYTHING IN GOOD CONDITION",
     allClear: true
   }, needsAttention.map(it => /*#__PURE__*/React.createElement("div", {
-    className: "dash-row",
+    className: "dash-row dash-row-attention",
     key: it.id,
     onClick: () => setViewing(it)
-  }, /*#__PURE__*/React.createElement("div", {
+  }, /*#__PURE__*/React.createElement(ItemThumb, {
+    url: thumbs[it.id],
+    name: it.name,
+    category: it.category
+  }), /*#__PURE__*/React.createElement("div", {
     style: {
       flex: 1,
       minWidth: 0
@@ -3958,10 +4003,14 @@ function DashboardTab({
   }, rows.length)), rows.map(r => {
     const it = itemMap[r.item_id];
     return /*#__PURE__*/React.createElement("div", {
-      className: "dash-row",
+      className: "dash-row dash-row-out",
       key: r.id,
       onClick: () => it && setViewing(it)
-    }, /*#__PURE__*/React.createElement("div", {
+    }, /*#__PURE__*/React.createElement(ItemThumb, {
+      url: thumbs[r.item_id],
+      name: it?.name,
+      category: it?.category
+    }), /*#__PURE__*/React.createElement("div", {
       style: {
         flex: 1,
         minWidth: 0
@@ -3980,7 +4029,11 @@ function DashboardTab({
     className: "dash-row",
     key: it.id,
     onClick: () => setViewing(it)
-  }, /*#__PURE__*/React.createElement("div", {
+  }, /*#__PURE__*/React.createElement(ItemThumb, {
+    url: thumbs[it.id],
+    name: it.name,
+    category: it.category
+  }), /*#__PURE__*/React.createElement("div", {
     style: {
       flex: 1,
       minWidth: 0
@@ -3999,26 +4052,32 @@ function DashboardTab({
   }, "+ ", neverUsed.length - 12, " more")), /*#__PURE__*/React.createElement(DashSection, {
     title: "Recent activity",
     emptyText: "No activity yet."
-  }, recent.map(ev => /*#__PURE__*/React.createElement("div", {
-    className: "dash-row",
-    key: ev.id,
-    onClick: () => {
-      const it = itemMap[ev.item_id];
-      if (it) setViewing(it);
-    }
-  }, /*#__PURE__*/React.createElement("div", {
-    style: {
-      flex: 1,
-      minWidth: 0
-    }
-  }, /*#__PURE__*/React.createElement("div", {
-    className: "dash-row-name",
-    style: {
-      fontSize: 14
-    }
-  }, actionLabel(ev.action), itemMap[ev.item_id] ? ` · ${itemMap[ev.item_id].name}` : ''), /*#__PURE__*/React.createElement("div", {
-    className: "dash-row-sub"
-  }, ev.changed_by, " \xB7 ", fmtTime(ev.changed_at)))))), viewing && /*#__PURE__*/React.createElement(ItemDetailModal, {
+  }, recent.map(ev => {
+    const it = itemMap[ev.item_id];
+    return /*#__PURE__*/React.createElement("div", {
+      className: "dash-row",
+      key: ev.id,
+      onClick: () => {
+        if (it) setViewing(it);
+      }
+    }, /*#__PURE__*/React.createElement(ItemThumb, {
+      url: thumbs[ev.item_id],
+      name: it?.name,
+      category: it?.category
+    }), /*#__PURE__*/React.createElement("div", {
+      style: {
+        flex: 1,
+        minWidth: 0
+      }
+    }, /*#__PURE__*/React.createElement("div", {
+      className: "dash-row-name",
+      style: {
+        fontSize: 14
+      }
+    }, actionLabel(ev.action), it ? ` · ${it.name}` : ''), /*#__PURE__*/React.createElement("div", {
+      className: "dash-row-sub"
+    }, ev.changed_by, " \xB7 ", fmtTime(ev.changed_at))));
+  })), viewing && /*#__PURE__*/React.createElement(ItemDetailModal, {
     item: viewing,
     admin: admin,
     onClose: () => setViewing(null),
