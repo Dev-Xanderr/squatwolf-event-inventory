@@ -1777,6 +1777,120 @@ h1, h2, h3 {
   margin-bottom: 10px;
 }
 
+/* "Now: Stage" headline above the workflow stepper. Gives an at-a-glance
+   answer to "what state is this in?" so users don't have to scan seven dots
+   to find the bold one. */
+.workflow-now {
+  background: var(--surface-2, #161616);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--accent-info);
+  border-radius: 8px;
+  padding: 8px 12px;
+  margin-bottom: 12px;
+}
+.workflow-now-label {
+  font-family: 'Manrope', sans-serif;
+  font-size: 9px; font-weight: 700; letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-mute, #7A7A7A);
+}
+.workflow-now-stage {
+  font-family: 'Manrope', sans-serif;
+  font-size: 16px; font-weight: 800;
+  color: var(--accent-info);
+  margin-top: 1px;
+}
+.workflow-now-sub {
+  font-family: 'Manrope', sans-serif;
+  font-size: 11px; color: var(--text-mute, #9a9a9a);
+  margin-top: 1px;
+}
+/* State-tinted "Now" pill — matches the stage's tone */
+.workflow-now-draft     { border-left-color: var(--border-strong, #3a3a3a); }
+.workflow-now-draft     .workflow-now-stage { color: var(--text); }
+.workflow-now-requested { border-left-color: var(--accent-info); }
+.workflow-now-requested .workflow-now-stage { color: var(--accent-info); }
+.workflow-now-approved  { border-left-color: var(--accent-good); }
+.workflow-now-approved  .workflow-now-stage { color: var(--accent-good); }
+.workflow-now-shipped   { border-left-color: var(--accent-warn); }
+.workflow-now-shipped   .workflow-now-stage { color: var(--accent-warn); }
+.workflow-now-arrived   { border-left-color: var(--accent-good); }
+.workflow-now-arrived   .workflow-now-stage { color: var(--accent-good); }
+.workflow-now-returning { border-left-color: var(--accent-out); }
+.workflow-now-returning .workflow-now-stage { color: var(--accent-out); }
+.workflow-now-closed    { border-left-color: var(--text-mute, #7A7A7A); }
+.workflow-now-closed    .workflow-now-stage { color: var(--text-mute, #7A7A7A); }
+
+/* Audit meta on completed steps — "by whom · when". Replaces the generic
+   sub-text on done stages. */
+.workflow-step-meta {
+  font-family: 'Manrope', sans-serif;
+  font-size: 10px; color: var(--text-mute, #7A7A7A);
+  margin-top: 1px;
+  letter-spacing: 0.02em;
+}
+
+/* Top-of-page approval action bar — shown to masters on requested events
+   so the prompt + actions are where the eye lands first, not buried in
+   the sidebar tracker. */
+.approval-bar {
+  display: flex; gap: 12px; align-items: center;
+  background: rgba(90, 175, 212, 0.10);
+  border: 1px solid var(--accent-info-bd);
+  border-left: 3px solid var(--accent-info);
+  border-radius: 12px;
+  padding: 12px 14px;
+  margin-bottom: 12px;
+}
+.approval-bar-icon {
+  flex: none;
+  width: 8px; height: 8px;
+  border-radius: 50%;
+  background: var(--accent-info);
+  box-shadow: 0 0 0 4px rgba(90, 175, 212, 0.18);
+  font-size: 0;  /* hide the bullet glyph; the dot is from background+shadow */
+}
+.approval-bar-body { flex: 1; min-width: 0; }
+.approval-bar-head {
+  font-family: 'Manrope', sans-serif;
+  font-size: 13px; font-weight: 700;
+  color: var(--accent-info);
+  letter-spacing: 0.02em;
+}
+.approval-bar-sub {
+  font-family: 'Manrope', sans-serif;
+  font-size: 11px; color: var(--text-mute, #9a9a9a);
+  margin-top: 2px; letter-spacing: 0.02em;
+}
+.approval-bar-actions {
+  flex: none;
+  display: flex; gap: 6px;
+}
+@media (max-width: 540px) {
+  .approval-bar { flex-wrap: wrap; }
+  .approval-bar-actions { width: 100%; }
+  .approval-bar-actions .btn { flex: 1; }
+}
+
+/* Workflow-state chip on deployment list rows — lets a viewer triage
+   the list without clicking into every event. */
+.wf-chip {
+  display: inline-flex; align-items: center;
+  padding: 3px 8px;
+  border-radius: 999px;
+  border: 1px solid;
+  font-family: 'Manrope', sans-serif;
+  font-size: 10px; font-weight: 700; letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.wf-chip-draft     { background: #1f1f1f;                  border-color: var(--border-strong, #3a3a3a); color: var(--text-mute, #9a9a9a); }
+.wf-chip-requested { background: var(--accent-info-bg);    border-color: var(--accent-info-bd);         color: var(--accent-info); }
+.wf-chip-approved  { background: var(--accent-good-bg);    border-color: var(--accent-good-bd);         color: var(--accent-good); }
+.wf-chip-shipped   { background: var(--accent-warn-bg);    border-color: var(--accent-warn-bd);         color: var(--accent-warn); }
+.wf-chip-arrived   { background: rgba(95, 207, 126, 0.18); border-color: var(--accent-good);            color: var(--accent-good); }
+.wf-chip-returning { background: var(--accent-out-bg);     border-color: var(--accent-out-bd);          color: var(--accent-out); }
+.wf-chip-closed    { background: #1f1f1f;                  border-color: var(--border);                 color: var(--text-mute, #7A7A7A); }
+
 /* Workflow tracker — vertical stepper with bullets and a connector line */
 .workflow-steps {
   list-style: none; padding: 0; margin: 0 0 12px 0;

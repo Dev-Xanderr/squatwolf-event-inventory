@@ -2951,6 +2951,50 @@ function EventFormModal({
   }, saving ? isEdit ? 'Saving…' : 'Creating…' : isEdit ? 'Save changes' : 'Create deployment'))));
 }
 
+// ---------- approval action bar ----------
+// Shown at the very top of EventDetail's main column when workflow_state is
+// 'requested' AND the viewer is a master. The audit's #1 critical finding
+// was that the Approve CTA was buried in the sidebar; this hoists it to
+// where the eye lands first. Inline submitter context + both Approve and
+// Send back actions, no scrolling needed.
+function ApprovalActionBar({
+  event,
+  onApprove,
+  onSendBack
+}) {
+  const [sendBackOpen, setSendBackOpen] = useState(false);
+  const submittedBy = event.workflow_updated_by || 'someone';
+  const submittedAt = event.workflow_updated_at;
+  return /*#__PURE__*/React.createElement("div", {
+    className: "approval-bar"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "approval-bar-icon"
+  }, "\u25CF"), /*#__PURE__*/React.createElement("div", {
+    className: "approval-bar-body"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "approval-bar-head"
+  }, "Awaiting your approval"), /*#__PURE__*/React.createElement("div", {
+    className: "approval-bar-sub"
+  }, "Submitted by ", /*#__PURE__*/React.createElement("b", null, submittedBy), submittedAt && /*#__PURE__*/React.createElement(React.Fragment, null, " \xB7 ", fmtTime(submittedAt)))), /*#__PURE__*/React.createElement("div", {
+    className: "approval-bar-actions"
+  }, /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    className: "btn ghost sm",
+    onClick: () => setSendBackOpen(true)
+  }, "\u21B6 Send back"), /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    className: "btn primary",
+    onClick: onApprove
+  }, "\u2713 Approve request")), sendBackOpen && /*#__PURE__*/React.createElement(SendBackModal, {
+    event: event,
+    onClose: () => setSendBackOpen(false),
+    onSend: reason => {
+      setSendBackOpen(false);
+      onSendBack(reason);
+    }
+  }));
+}
+
 // ---------- send-back banner ----------
 // Shown on draft deployments only. Pulls the most recent comment that starts
 // with the "↶ Sent back:" prefix (written by setWorkflow when a master rejects
@@ -3006,8 +3050,30 @@ function WorkflowTracker({
   const state = event.workflow_state || 'approved';
   const idx = workflowIndex(state);
   const canActOnCurrent = admin && (WORKFLOW_STATES[idx]?.gate === 'admin' || WORKFLOW_STATES[idx]?.gate === 'master' && isMaster);
+  const [sendBackOpen, setSendBackOpen] = useState(false);
 
-  // Primary CTAs — what to call the next-state button at each stage
+  // Pull workflow transitions for this event so each completed step can
+  // show who advanced it and when. We re-fetch when state changes so the
+  // "Now: …" header + done-stage meta stay current after a transition.
+  const [transitions, setTransitions] = useState([]);
+  useEffect(() => {
+    sb.from('history').select('action, changes, changed_by, changed_at').eq('event_id', event.id).in('action', ['workflow_advanced', 'workflow_rolled_back', 'workflow_sent_back']).order('changed_at', {
+      ascending: true
+    }).then(({
+      data
+    }) => setTransitions(data || []));
+  }, [event.id, state]);
+
+  // Build a "who/when entered each state" map by walking transitions
+  // chronologically — last entry into a state wins.
+  const enteredAt = {};
+  transitions.forEach(t => {
+    const to = t.changes?.to;
+    if (to) enteredAt[to] = {
+      by: t.changed_by,
+      at: t.changed_at
+    };
+  });
   const advanceCta = {
     draft: {
       label: 'Submit for approval',
@@ -3035,16 +3101,6 @@ function WorkflowTracker({
     }
   };
   const cta = advanceCta[state];
-
-  // Secondary action: master sending back a request to the requester
-  function sendBack() {
-    onAdvance('draft', {
-      kind: 'send_back',
-      toast: 'Sent back to draft for revision'
-    });
-  }
-
-  // Master rollback — step back one stage
   function rollback() {
     if (idx === 0) return;
     const prev = WORKFLOW_STATES[idx - 1].v;
@@ -3053,6 +3109,7 @@ function WorkflowTracker({
       toast: `Rolled back to ${prev}`
     });
   }
+  const currentStage = WORKFLOW_STATES[idx];
   return /*#__PURE__*/React.createElement("div", {
     className: "sidebar-card workflow-card"
   }, /*#__PURE__*/React.createElement("div", {
@@ -3062,10 +3119,19 @@ function WorkflowTracker({
     className: "link-btn",
     onClick: rollback,
     title: "Step back one stage"
-  }, "\u21B6 Back")), /*#__PURE__*/React.createElement("ol", {
+  }, "\u21B6 Back")), /*#__PURE__*/React.createElement("div", {
+    className: `workflow-now workflow-now-${state}`
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "workflow-now-label"
+  }, "Now"), /*#__PURE__*/React.createElement("div", {
+    className: "workflow-now-stage"
+  }, currentStage.label), /*#__PURE__*/React.createElement("div", {
+    className: "workflow-now-sub"
+  }, currentStage.sub)), /*#__PURE__*/React.createElement("ol", {
     className: "workflow-steps"
   }, WORKFLOW_STATES.map((s, i) => {
     const status = i < idx ? 'done' : i === idx ? 'current' : 'pending';
+    const meta = status === 'done' ? enteredAt[s.v] : null;
     return /*#__PURE__*/React.createElement("li", {
       key: s.v,
       className: `workflow-step workflow-step-${status}`
@@ -3075,7 +3141,9 @@ function WorkflowTracker({
       className: "workflow-step-body"
     }, /*#__PURE__*/React.createElement("div", {
       className: "workflow-step-label"
-    }, s.label), /*#__PURE__*/React.createElement("div", {
+    }, s.label), meta ? /*#__PURE__*/React.createElement("div", {
+      className: "workflow-step-meta"
+    }, meta.by, " \xB7 ", fmtTime(meta.at)) : /*#__PURE__*/React.createElement("div", {
       className: "workflow-step-sub"
     }, s.sub)));
   })), state !== 'closed' && /*#__PURE__*/React.createElement("div", {
@@ -3091,13 +3159,117 @@ function WorkflowTracker({
   }, WORKFLOW_STATES[idx]?.gate === 'master' ? 'Awaiting master approval' : 'Read-only access — only Admins can advance this'), state === 'requested' && isMaster && /*#__PURE__*/React.createElement("button", {
     type: "button",
     className: "btn ghost sm",
-    onClick: sendBack,
+    onClick: () => setSendBackOpen(true),
     style: {
       marginTop: 6
     }
   }, "Send back for revision")), state === 'closed' && /*#__PURE__*/React.createElement("div", {
     className: "workflow-closed"
-  }, "Deployment closed \xB7 ", fmtTime(event.workflow_updated_at)));
+  }, "Deployment closed \xB7 ", fmtTime(event.workflow_updated_at)), sendBackOpen && /*#__PURE__*/React.createElement(SendBackModal, {
+    event: event,
+    onClose: () => setSendBackOpen(false),
+    onSend: reason => {
+      setSendBackOpen(false);
+      onAdvance('draft', {
+        kind: 'send_back',
+        reason,
+        toast: 'Sent back for revision'
+      });
+    }
+  }));
+}
+
+// ---------- send-back modal ----------
+// Replaces the previous window.prompt with a styled modal that previews
+// what the requester will see, so masters know they're writing reader-
+// facing copy. Reason is required.
+function SendBackModal({
+  event,
+  onClose,
+  onSend
+}) {
+  const [reason, setReason] = useState('');
+  const trimmed = reason.trim();
+  return /*#__PURE__*/React.createElement("div", {
+    className: "backdrop",
+    onClick: onClose
+  }, /*#__PURE__*/React.createElement("form", {
+    className: "modal",
+    style: {
+      maxWidth: 460
+    },
+    onClick: e => e.stopPropagation(),
+    onSubmit: e => {
+      e.preventDefault();
+      if (trimmed) onSend(trimmed);
+    }
+  }, /*#__PURE__*/React.createElement("h2", null, "Send back for revision"), /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 12,
+      color: '#9a9a9a',
+      marginBottom: 12,
+      letterSpacing: '0.02em',
+      lineHeight: 1.5
+    }
+  }, "The requester will see this as a red banner on top of the draft. Be specific so they know what to fix."), /*#__PURE__*/React.createElement("div", {
+    className: "field"
+  }, /*#__PURE__*/React.createElement("label", null, "Why are you sending this back?"), /*#__PURE__*/React.createElement("textarea", {
+    value: reason,
+    onChange: e => setReason(e.target.value),
+    rows: "3",
+    placeholder: "e.g. Add the audio gear too \u2014 last activation needed it",
+    autoFocus: true,
+    style: {
+      width: '100%',
+      background: '#1a1a1a',
+      border: '1px solid #2a2a2a',
+      color: '#FAFAFA',
+      padding: '8px 10px',
+      fontFamily: "'Manrope',sans-serif",
+      fontSize: 13,
+      resize: 'vertical'
+    }
+  })), trimmed && /*#__PURE__*/React.createElement("div", {
+    style: {
+      background: '#2b0d0d',
+      border: '1px solid #5a2222',
+      borderLeft: '3px solid var(--accent-bad)',
+      borderRadius: 8,
+      padding: '10px 12px',
+      marginTop: 6
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontFamily: "'Manrope',sans-serif",
+      fontSize: 10,
+      fontWeight: 700,
+      letterSpacing: '0.06em',
+      textTransform: 'uppercase',
+      color: 'var(--accent-bad)',
+      marginBottom: 4
+    }
+  }, "Preview \u2014 requester sees:"), /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontFamily: "'Manrope',sans-serif",
+      fontSize: 13,
+      color: '#d4d4d4',
+      whiteSpace: 'pre-wrap',
+      wordBreak: 'break-word'
+    }
+  }, "\u21B6 Sent back: ", trimmed)), /*#__PURE__*/React.createElement("div", {
+    className: "actions",
+    style: {
+      marginTop: 14
+    }
+  }, /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    className: "btn ghost",
+    onClick: onClose
+  }, "Cancel"), /*#__PURE__*/React.createElement("button", {
+    type: "submit",
+    className: "btn primary",
+    disabled: !trimmed
+  }, "\u21B6 Send back"))));
 }
 
 // ---------- logistics panel (sidebar) ----------
@@ -5091,13 +5263,14 @@ function EventDetail({
     if (!admin) return;
     const fromState = currentEvent.workflow_state || 'approved';
 
-    // Send-back: prompt for reason. Required — silent send-backs were the
-    // top user-pain Pragmatist surfaced (admins refresh, see "draft", have
-    // no idea why, ping master on WhatsApp).
+    // Send-back: reason is required. The styled SendBackModal in
+    // WorkflowTracker collects + previews it before calling us. Older
+    // call paths could still go through window.prompt as a fallback,
+    // but the UI no longer triggers that path.
     let reason = opts.reason;
     if (opts.kind === 'send_back' && !reason) {
       reason = window.prompt('Why are you sending this back? The requester will see this on the draft.');
-      if (!reason || !reason.trim()) return; // cancelled or empty
+      if (!reason || !reason.trim()) return;
       reason = reason.trim();
     }
     const now = new Date().toISOString();
@@ -5257,7 +5430,17 @@ function EventDetail({
     className: "container deploy-layout"
   }, /*#__PURE__*/React.createElement("div", {
     className: "deploy-main"
-  }, /*#__PURE__*/React.createElement(SendBackBanner, {
+  }, currentEvent.workflow_state === 'requested' && admin?.role === 'master' && /*#__PURE__*/React.createElement(ApprovalActionBar, {
+    event: currentEvent,
+    onApprove: () => setWorkflow('approved', {
+      toast: 'Request approved'
+    }),
+    onSendBack: reason => setWorkflow('draft', {
+      kind: 'send_back',
+      reason,
+      toast: 'Sent back for revision'
+    })
+  }), /*#__PURE__*/React.createElement(SendBackBanner, {
     event: currentEvent
   }), /*#__PURE__*/React.createElement(PreflightBanner, {
     event: currentEvent,
@@ -6576,21 +6759,34 @@ function EventsTab({
     onClick: () => setNewOpen(true)
   }, "Create one \u2192")) : 'No deployments yet.') : /*#__PURE__*/React.createElement("div", {
     className: "items"
-  }, events.map(ev => /*#__PURE__*/React.createElement("div", {
-    className: "item clickable",
-    key: ev.id,
-    onClick: () => setSelected(ev)
-  }, /*#__PURE__*/React.createElement("div", {
-    className: "row"
-  }, /*#__PURE__*/React.createElement("div", {
-    className: "name"
-  }, ev.name), /*#__PURE__*/React.createElement("span", {
-    className: "meta"
-  }, fmtDate(ev.event_date))), ev.location && /*#__PURE__*/React.createElement("div", {
-    className: "meta"
-  }, ev.location), /*#__PURE__*/React.createElement("div", {
-    className: "meta"
-  }, "Tap to view \u2192")))), newOpen && /*#__PURE__*/React.createElement(EventFormModal, {
+  }, events.map(ev => {
+    const wf = ev.workflow_state || 'approved';
+    const wfLabel = WORKFLOW_STATES.find(s => s.v === wf)?.label || wf;
+    return /*#__PURE__*/React.createElement("div", {
+      className: "item clickable",
+      key: ev.id,
+      onClick: () => setSelected(ev)
+    }, /*#__PURE__*/React.createElement("div", {
+      className: "row"
+    }, /*#__PURE__*/React.createElement("div", {
+      className: "name"
+    }, ev.name), /*#__PURE__*/React.createElement("div", {
+      style: {
+        display: 'flex',
+        gap: 6,
+        alignItems: 'center',
+        flexShrink: 0
+      }
+    }, /*#__PURE__*/React.createElement("span", {
+      className: `wf-chip wf-chip-${wf}`
+    }, wfLabel), /*#__PURE__*/React.createElement("span", {
+      className: "meta"
+    }, fmtDate(ev.event_date)))), ev.location && /*#__PURE__*/React.createElement("div", {
+      className: "meta"
+    }, ev.location), /*#__PURE__*/React.createElement("div", {
+      className: "meta"
+    }, "Tap to view \u2192"));
+  })), newOpen && /*#__PURE__*/React.createElement(EventFormModal, {
     admin: admin,
     onClose: () => setNewOpen(false),
     onSaved: ev => {

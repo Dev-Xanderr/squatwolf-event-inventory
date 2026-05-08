@@ -1891,6 +1891,39 @@ function EventFormModal({ admin, event, onClose, onSaved }) {
   );
 }
 
+// ---------- approval action bar ----------
+// Shown at the very top of EventDetail's main column when workflow_state is
+// 'requested' AND the viewer is a master. The audit's #1 critical finding
+// was that the Approve CTA was buried in the sidebar; this hoists it to
+// where the eye lands first. Inline submitter context + both Approve and
+// Send back actions, no scrolling needed.
+function ApprovalActionBar({ event, onApprove, onSendBack }) {
+  const [sendBackOpen, setSendBackOpen] = useState(false);
+  const submittedBy = event.workflow_updated_by || 'someone';
+  const submittedAt = event.workflow_updated_at;
+  return (
+    <div className="approval-bar">
+      <div className="approval-bar-icon">●</div>
+      <div className="approval-bar-body">
+        <div className="approval-bar-head">Awaiting your approval</div>
+        <div className="approval-bar-sub">
+          Submitted by <b>{submittedBy}</b>
+          {submittedAt && <> · {fmtTime(submittedAt)}</>}
+        </div>
+      </div>
+      <div className="approval-bar-actions">
+        <button type="button" className="btn ghost sm" onClick={()=>setSendBackOpen(true)}>↶ Send back</button>
+        <button type="button" className="btn primary" onClick={onApprove}>✓ Approve request</button>
+      </div>
+      {sendBackOpen && (
+        <SendBackModal event={event}
+          onClose={()=>setSendBackOpen(false)}
+          onSend={(reason)=>{ setSendBackOpen(false); onSendBack(reason); }} />
+      )}
+    </div>
+  );
+}
+
 // ---------- send-back banner ----------
 // Shown on draft deployments only. Pulls the most recent comment that starts
 // with the "↶ Sent back:" prefix (written by setWorkflow when a master rejects
@@ -1937,8 +1970,29 @@ function WorkflowTracker({ event, admin, isMaster, onAdvance }) {
     WORKFLOW_STATES[idx]?.gate === 'admin' ||
     (WORKFLOW_STATES[idx]?.gate === 'master' && isMaster)
   );
+  const [sendBackOpen, setSendBackOpen] = useState(false);
 
-  // Primary CTAs — what to call the next-state button at each stage
+  // Pull workflow transitions for this event so each completed step can
+  // show who advanced it and when. We re-fetch when state changes so the
+  // "Now: …" header + done-stage meta stay current after a transition.
+  const [transitions, setTransitions] = useState([]);
+  useEffect(() => {
+    sb.from('history')
+      .select('action, changes, changed_by, changed_at')
+      .eq('event_id', event.id)
+      .in('action', ['workflow_advanced', 'workflow_rolled_back', 'workflow_sent_back'])
+      .order('changed_at', { ascending: true })
+      .then(({ data }) => setTransitions(data || []));
+  }, [event.id, state]);
+
+  // Build a "who/when entered each state" map by walking transitions
+  // chronologically — last entry into a state wins.
+  const enteredAt = {};
+  transitions.forEach(t => {
+    const to = t.changes?.to;
+    if (to) enteredAt[to] = { by: t.changed_by, at: t.changed_at };
+  });
+
   const advanceCta = {
     draft:     { label: 'Submit for approval',     to: 'requested' },
     requested: { label: 'Approve request',         to: 'approved'  },
@@ -1949,17 +2003,13 @@ function WorkflowTracker({ event, admin, isMaster, onAdvance }) {
   };
   const cta = advanceCta[state];
 
-  // Secondary action: master sending back a request to the requester
-  function sendBack() {
-    onAdvance('draft', { kind: 'send_back', toast: 'Sent back to draft for revision' });
-  }
-
-  // Master rollback — step back one stage
   function rollback() {
     if (idx === 0) return;
     const prev = WORKFLOW_STATES[idx - 1].v;
     onAdvance(prev, { kind: 'rollback', toast: `Rolled back to ${prev}` });
   }
+
+  const currentStage = WORKFLOW_STATES[idx];
 
   return (
     <div className="sidebar-card workflow-card">
@@ -1969,9 +2019,19 @@ function WorkflowTracker({ event, admin, isMaster, onAdvance }) {
           <button type="button" className="link-btn" onClick={rollback} title="Step back one stage">↶ Back</button>
         )}
       </div>
+
+      {/* "Now" headline — at-a-glance answer to "what state is this in?".
+          Replaces the user having to scan seven dots to find the current one. */}
+      <div className={`workflow-now workflow-now-${state}`}>
+        <div className="workflow-now-label">Now</div>
+        <div className="workflow-now-stage">{currentStage.label}</div>
+        <div className="workflow-now-sub">{currentStage.sub}</div>
+      </div>
+
       <ol className="workflow-steps">
         {WORKFLOW_STATES.map((s, i) => {
           const status = i < idx ? 'done' : (i === idx ? 'current' : 'pending');
+          const meta = status === 'done' ? enteredAt[s.v] : null;
           return (
             <li key={s.v} className={`workflow-step workflow-step-${status}`}>
               <div className="workflow-bullet">
@@ -1979,7 +2039,9 @@ function WorkflowTracker({ event, admin, isMaster, onAdvance }) {
               </div>
               <div className="workflow-step-body">
                 <div className="workflow-step-label">{s.label}</div>
-                <div className="workflow-step-sub">{s.sub}</div>
+                {meta
+                  ? <div className="workflow-step-meta">{meta.by} · {fmtTime(meta.at)}</div>
+                  : <div className="workflow-step-sub">{s.sub}</div>}
               </div>
             </li>
           );
@@ -2000,7 +2062,7 @@ function WorkflowTracker({ event, admin, isMaster, onAdvance }) {
             </div>
           )}
           {state === 'requested' && isMaster && (
-            <button type="button" className="btn ghost sm" onClick={sendBack} style={{marginTop:6}}>
+            <button type="button" className="btn ghost sm" onClick={()=>setSendBackOpen(true)} style={{marginTop:6}}>
               Send back for revision
             </button>
           )}
@@ -2009,6 +2071,52 @@ function WorkflowTracker({ event, admin, isMaster, onAdvance }) {
       {state === 'closed' && (
         <div className="workflow-closed">Deployment closed · {fmtTime(event.workflow_updated_at)}</div>
       )}
+      {sendBackOpen && (
+        <SendBackModal event={event}
+          onClose={()=>setSendBackOpen(false)}
+          onSend={(reason)=>{ setSendBackOpen(false); onAdvance('draft', { kind: 'send_back', reason, toast: 'Sent back for revision' }); }} />
+      )}
+    </div>
+  );
+}
+
+// ---------- send-back modal ----------
+// Replaces the previous window.prompt with a styled modal that previews
+// what the requester will see, so masters know they're writing reader-
+// facing copy. Reason is required.
+function SendBackModal({ event, onClose, onSend }) {
+  const [reason, setReason] = useState('');
+  const trimmed = reason.trim();
+  return (
+    <div className="backdrop" onClick={onClose}>
+      <form className="modal" style={{maxWidth:460}} onClick={e=>e.stopPropagation()}
+        onSubmit={(e)=>{ e.preventDefault(); if (trimmed) onSend(trimmed); }}>
+        <h2>Send back for revision</h2>
+        <div style={{fontSize:12,color:'#9a9a9a',marginBottom:12,letterSpacing:'0.02em',lineHeight:1.5}}>
+          The requester will see this as a red banner on top of the draft.
+          Be specific so they know what to fix.
+        </div>
+        <div className="field"><label>Why are you sending this back?</label>
+          <textarea value={reason} onChange={e=>setReason(e.target.value)} rows="3"
+            placeholder="e.g. Add the audio gear too — last activation needed it"
+            autoFocus
+            style={{width:'100%',background:'#1a1a1a',border:'1px solid #2a2a2a',color:'#FAFAFA',padding:'8px 10px',fontFamily:"'Manrope',sans-serif",fontSize:13,resize:'vertical'}} />
+        </div>
+        {trimmed && (
+          <div style={{background:'#2b0d0d',border:'1px solid #5a2222',borderLeft:'3px solid var(--accent-bad)',borderRadius:8,padding:'10px 12px',marginTop:6}}>
+            <div style={{fontFamily:"'Manrope',sans-serif",fontSize:10,fontWeight:700,letterSpacing:'0.06em',textTransform:'uppercase',color:'var(--accent-bad)',marginBottom:4}}>
+              Preview — requester sees:
+            </div>
+            <div style={{fontFamily:"'Manrope',sans-serif",fontSize:13,color:'#d4d4d4',whiteSpace:'pre-wrap',wordBreak:'break-word'}}>
+              ↶ Sent back: {trimmed}
+            </div>
+          </div>
+        )}
+        <div className="actions" style={{marginTop:14}}>
+          <button type="button" className="btn ghost" onClick={onClose}>Cancel</button>
+          <button type="submit" className="btn primary" disabled={!trimmed}>↶ Send back</button>
+        </div>
+      </form>
     </div>
   );
 }
@@ -3364,13 +3472,14 @@ function EventDetail({ event, admin, onBack }) {
     if (!admin) return;
     const fromState = currentEvent.workflow_state || 'approved';
 
-    // Send-back: prompt for reason. Required — silent send-backs were the
-    // top user-pain Pragmatist surfaced (admins refresh, see "draft", have
-    // no idea why, ping master on WhatsApp).
+    // Send-back: reason is required. The styled SendBackModal in
+    // WorkflowTracker collects + previews it before calling us. Older
+    // call paths could still go through window.prompt as a fallback,
+    // but the UI no longer triggers that path.
     let reason = opts.reason;
     if (opts.kind === 'send_back' && !reason) {
       reason = window.prompt('Why are you sending this back? The requester will see this on the draft.');
-      if (!reason || !reason.trim()) return;  // cancelled or empty
+      if (!reason || !reason.trim()) return;
       reason = reason.trim();
     }
 
@@ -3476,6 +3585,11 @@ function EventDetail({ event, admin, onBack }) {
 
       <div className="container deploy-layout">
         <div className="deploy-main">
+        {currentEvent.workflow_state === 'requested' && admin?.role === 'master' && (
+          <ApprovalActionBar event={currentEvent}
+            onApprove={()=>setWorkflow('approved', { toast: 'Request approved' })}
+            onSendBack={(reason)=>setWorkflow('draft', { kind: 'send_back', reason, toast: 'Sent back for revision' })} />
+        )}
         <SendBackBanner event={currentEvent} />
         <PreflightBanner event={currentEvent} eventItems={eventItems} items={items} />
         {/* stats */}
@@ -4483,16 +4597,23 @@ function EventsTab({ admin, openEventId, onOpened }) {
         </div>
       ) : (
         <div className="items">
-          {events.map(ev => (
-            <div className="item clickable" key={ev.id} onClick={()=>setSelected(ev)}>
-              <div className="row">
-                <div className="name">{ev.name}</div>
-                <span className="meta">{fmtDate(ev.event_date)}</span>
+          {events.map(ev => {
+            const wf = ev.workflow_state || 'approved';
+            const wfLabel = WORKFLOW_STATES.find(s => s.v === wf)?.label || wf;
+            return (
+              <div className="item clickable" key={ev.id} onClick={()=>setSelected(ev)}>
+                <div className="row">
+                  <div className="name">{ev.name}</div>
+                  <div style={{display:'flex',gap:6,alignItems:'center',flexShrink:0}}>
+                    <span className={`wf-chip wf-chip-${wf}`}>{wfLabel}</span>
+                    <span className="meta">{fmtDate(ev.event_date)}</span>
+                  </div>
+                </div>
+                {ev.location && <div className="meta">{ev.location}</div>}
+                <div className="meta">Tap to view →</div>
               </div>
-              {ev.location && <div className="meta">{ev.location}</div>}
-              <div className="meta">Tap to view →</div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
       {newOpen && (
