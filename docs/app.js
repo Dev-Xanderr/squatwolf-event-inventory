@@ -1730,6 +1730,102 @@ function EventFormModal({ admin, event, onClose, onSaved }) {
   );
 }
 
+// ---------- deployment comments / internal notes ----------
+// Append-only feed per deployment. All signed-in users can read; admins post.
+// Realtime channel pushes new comments to every open client.
+function CommentsPanel({ event, admin, viewerName }) {
+  const [comments, setComments] = useState(null);
+  const [body,     setBody]     = useState('');
+  const [posting,  setPosting]  = useState(false);
+
+  async function load() {
+    const { data } = await sb.from('event_comments')
+      .select('*').eq('event_id', event.id).order('created_at', { ascending: true });
+    setComments(data || []);
+  }
+  useEffect(() => { load(); }, [event.id]);
+
+  // Realtime — new comments from any client appear instantly
+  useEffect(() => {
+    const ch = sb.channel(`event-comments-${event.id}`)
+      .on('postgres_changes',
+        { event: '*', schema: 'public', table: 'event_comments', filter: `event_id=eq.${event.id}` },
+        load)
+      .subscribe();
+    return () => sb.removeChannel(ch);
+  }, [event.id]);
+
+  async function post(e) {
+    e.preventDefault();
+    const text = body.trim();
+    if (!text || !admin) return;
+    setPosting(true);
+    try {
+      const { data: sess } = await sb.auth.getUser();
+      const { error } = await sb.from('event_comments').insert({
+        event_id: event.id, body: text,
+        author_id: sess?.user?.id || null,
+        author_name: admin.name,
+      });
+      if (error) throw error;
+      setBody('');
+    } catch (e) {
+      toast(`Couldn't post: ${friendlyError(e)}`, 'err');
+    } finally {
+      setPosting(false);
+    }
+  }
+
+  async function remove(c) {
+    if (!await confirm({ title: 'Delete this note?', body: 'Remove your comment from this deployment?', danger: true, confirmLabel: 'Delete' })) return;
+    const { error } = await sb.from('event_comments').delete().eq('id', c.id);
+    if (error) toast(`Couldn't delete: ${friendlyError(error)}`, 'err');
+  }
+
+  return (
+    <div className="comments-panel">
+      <div className="section-label" style={{marginTop:0}}>Notes</div>
+      {comments === null ? (
+        <div className="empty" style={{padding:'14px'}}>Loading…</div>
+      ) : comments.length === 0 ? (
+        <div style={{fontSize:12,color:'#7A7A7A',padding:'4px 0 10px',letterSpacing:'0.04em'}}>
+          No notes yet — share status, blockers, or coordination here.
+        </div>
+      ) : (
+        <div className="comments-list">
+          {comments.map(c => {
+            const mine = c.author_name === viewerName;
+            return (
+              <div className="comment" key={c.id}>
+                <div className="comment-head">
+                  <span className="comment-author">{c.author_name}</span>
+                  <span className="comment-time">{fmtTime(c.created_at)}</span>
+                  {mine && (
+                    <button type="button" className="comment-del" onClick={()=>remove(c)} title="Delete">✕</button>
+                  )}
+                </div>
+                <div className="comment-body">{c.body}</div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+      {admin ? (
+        <form className="comment-compose" onSubmit={post}>
+          <textarea value={body} onChange={e=>setBody(e.target.value)}
+            rows="2" placeholder="Add a note…"
+            onKeyDown={e=>{ if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) post(e); }} />
+          <button type="submit" className="btn primary sm" disabled={posting || !body.trim()}>
+            {posting ? '…' : 'Post'}
+          </button>
+        </form>
+      ) : (
+        <div style={{fontSize:11,color:'#7A7A7A',padding:'8px 0 0'}}>Sign in as admin to post notes.</div>
+      )}
+    </div>
+  );
+}
+
 // ---------- preflight banner ----------
 // Shown at the top of EventDetail for events whose event_date is in the
 // future. Summarises shipment-readiness in one line ("Ready" / "X issues") +
@@ -2838,6 +2934,8 @@ function EventDetail({ event, admin, onBack }) {
             })}
           </div>
         )}
+
+        <CommentsPanel event={currentEvent} admin={admin} viewerName={admin?.name || ''} />
       </div>
 
       {assignOpen && (

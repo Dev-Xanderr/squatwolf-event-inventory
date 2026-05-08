@@ -2670,6 +2670,140 @@ function EventFormModal({
   }, saving ? isEdit ? 'Saving…' : 'Creating…' : isEdit ? 'Save changes' : 'Create event'))));
 }
 
+// ---------- deployment comments / internal notes ----------
+// Append-only feed per deployment. All signed-in users can read; admins post.
+// Realtime channel pushes new comments to every open client.
+function CommentsPanel({
+  event,
+  admin,
+  viewerName
+}) {
+  const [comments, setComments] = useState(null);
+  const [body, setBody] = useState('');
+  const [posting, setPosting] = useState(false);
+  async function load() {
+    const {
+      data
+    } = await sb.from('event_comments').select('*').eq('event_id', event.id).order('created_at', {
+      ascending: true
+    });
+    setComments(data || []);
+  }
+  useEffect(() => {
+    load();
+  }, [event.id]);
+
+  // Realtime — new comments from any client appear instantly
+  useEffect(() => {
+    const ch = sb.channel(`event-comments-${event.id}`).on('postgres_changes', {
+      event: '*',
+      schema: 'public',
+      table: 'event_comments',
+      filter: `event_id=eq.${event.id}`
+    }, load).subscribe();
+    return () => sb.removeChannel(ch);
+  }, [event.id]);
+  async function post(e) {
+    e.preventDefault();
+    const text = body.trim();
+    if (!text || !admin) return;
+    setPosting(true);
+    try {
+      const {
+        data: sess
+      } = await sb.auth.getUser();
+      const {
+        error
+      } = await sb.from('event_comments').insert({
+        event_id: event.id,
+        body: text,
+        author_id: sess?.user?.id || null,
+        author_name: admin.name
+      });
+      if (error) throw error;
+      setBody('');
+    } catch (e) {
+      toast(`Couldn't post: ${friendlyError(e)}`, 'err');
+    } finally {
+      setPosting(false);
+    }
+  }
+  async function remove(c) {
+    if (!(await confirm({
+      title: 'Delete this note?',
+      body: 'Remove your comment from this deployment?',
+      danger: true,
+      confirmLabel: 'Delete'
+    }))) return;
+    const {
+      error
+    } = await sb.from('event_comments').delete().eq('id', c.id);
+    if (error) toast(`Couldn't delete: ${friendlyError(error)}`, 'err');
+  }
+  return /*#__PURE__*/React.createElement("div", {
+    className: "comments-panel"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "section-label",
+    style: {
+      marginTop: 0
+    }
+  }, "Notes"), comments === null ? /*#__PURE__*/React.createElement("div", {
+    className: "empty",
+    style: {
+      padding: '14px'
+    }
+  }, "Loading\u2026") : comments.length === 0 ? /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 12,
+      color: '#7A7A7A',
+      padding: '4px 0 10px',
+      letterSpacing: '0.04em'
+    }
+  }, "No notes yet \u2014 share status, blockers, or coordination here.") : /*#__PURE__*/React.createElement("div", {
+    className: "comments-list"
+  }, comments.map(c => {
+    const mine = c.author_name === viewerName;
+    return /*#__PURE__*/React.createElement("div", {
+      className: "comment",
+      key: c.id
+    }, /*#__PURE__*/React.createElement("div", {
+      className: "comment-head"
+    }, /*#__PURE__*/React.createElement("span", {
+      className: "comment-author"
+    }, c.author_name), /*#__PURE__*/React.createElement("span", {
+      className: "comment-time"
+    }, fmtTime(c.created_at)), mine && /*#__PURE__*/React.createElement("button", {
+      type: "button",
+      className: "comment-del",
+      onClick: () => remove(c),
+      title: "Delete"
+    }, "\u2715")), /*#__PURE__*/React.createElement("div", {
+      className: "comment-body"
+    }, c.body));
+  })), admin ? /*#__PURE__*/React.createElement("form", {
+    className: "comment-compose",
+    onSubmit: post
+  }, /*#__PURE__*/React.createElement("textarea", {
+    value: body,
+    onChange: e => setBody(e.target.value),
+    rows: "2",
+    placeholder: "Add a note\u2026",
+    onKeyDown: e => {
+      if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) post(e);
+    }
+  }), /*#__PURE__*/React.createElement("button", {
+    type: "submit",
+    className: "btn primary sm",
+    disabled: posting || !body.trim()
+  }, posting ? '…' : 'Post')) : /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 11,
+      color: '#7A7A7A',
+      padding: '8px 0 0'
+    }
+  }, "Sign in as admin to post notes."));
+}
+
 // ---------- preflight banner ----------
 // Shown at the top of EventDetail for events whose event_date is in the
 // future. Summarises shipment-readiness in one line ("Ready" / "X issues") +
@@ -4343,7 +4477,11 @@ function EventDetail({
       className: "btn sm",
       onClick: () => setUpdating(ei)
     }, "View")));
-  }))), assignOpen && /*#__PURE__*/React.createElement(AssignItemsModal, {
+  })), /*#__PURE__*/React.createElement(CommentsPanel, {
+    event: currentEvent,
+    admin: admin,
+    viewerName: admin?.name || ''
+  })), assignOpen && /*#__PURE__*/React.createElement(AssignItemsModal, {
     event: event,
     admin: admin,
     existingItemIds: existingItemIds,
