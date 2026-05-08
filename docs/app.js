@@ -55,7 +55,9 @@ function actionLabel(a) {
   return { item_created:'Item added', item_updated:'Item updated', item_deleted:'Item removed',
     assigned:'Assigned to deployment', location_updated:'Location updated', condition_changed:'Condition changed',
     notes_updated:'Notes updated', returned:'Returned', photo_added:'Photo added', photo_removed:'Photo removed',
-    repaired:'Marked repaired', retired:'Retired' }[a] || a;
+    repaired:'Marked repaired', retired:'Retired',
+    packed:'Packed', unpacked:'Marked not packed',
+    damage_reported:'Damage reported' }[a] || a;
 }
 function isVideo(m) { return (m||'').startsWith('video/'); }
 function diffObj(before, after, fields) {
@@ -1464,6 +1466,7 @@ function ItemDetailModal({ item, admin, onClose, onEdit }) {
   const [history, setHistory] = useState(null);
   const [eventItems, setEventItems] = useState([]);
   const [showQr, setShowQr] = useState(false);
+  const [damageOpen, setDamageOpen] = useState(false);
 
   useEffect(() => {
     sb.from('history').select('*').eq('item_id', item.id).order('changed_at', { ascending: false })
@@ -1523,12 +1526,133 @@ function ItemDetailModal({ item, admin, onClose, onEdit }) {
 
         <div className="actions" style={{marginTop:14}}>
           <button className="btn" onClick={()=>setShowQr(s => !s)}>{showQr ? 'Hide QR' : 'Show QR'}</button>
+          {admin && item.condition !== 'retired' && (
+            <button className="btn" onClick={()=>setDamageOpen(true)} title="Report damage">🛠 Report damage</button>
+          )}
           {admin
             ? <button className="btn primary" onClick={onEdit}>Edit item</button>
             : <LoginPrompt verb="edit" />}
           <button className="btn ghost" onClick={onClose}>Close</button>
         </div>
+        {damageOpen && (
+          <DamageReportModal item={item} admin={admin}
+            onClose={()=>setDamageOpen(false)}
+            onSaved={()=>{
+              // refresh history list inline so the new entry appears
+              sb.from('history').select('*').eq('item_id', item.id).order('changed_at', { ascending: false })
+                .then(({ data }) => setHistory(data || []));
+            }} />
+        )}
       </div>
+    </div>
+  );
+}
+
+// ---------- damage report modal ----------
+// Focused flow for "I just discovered damage on this item." Captures severity,
+// optional note, and optional photo (camera-friendly on mobile via the
+// capture attribute). Updates condition on master + event_item if applicable,
+// uploads the photo to attachments, and writes a single damage_reported
+// history entry that bundles all three pieces of context together.
+function DamageReportModal({ item, eventItem, admin, onClose, onSaved }) {
+  const [severity, setSeverity] = useState('damaged');
+  const [note,     setNote]     = useState('');
+  const [photo,    setPhoto]    = useState(null);
+  const [saving,   setSaving]   = useState(false);
+  const [err,      setErr]      = useState('');
+
+  async function save(e) {
+    e.preventDefault();
+    setSaving(true); setErr('');
+    const now = new Date().toISOString();
+    try {
+      // 1. Update condition on master
+      await sb.from('items').update({
+        condition: severity, updated_at: now, updated_by: admin.name,
+      }).eq('id', item.id);
+
+      // 2. Mirror to event_item if we're inside one
+      if (eventItem) {
+        await sb.from('event_items').update({
+          condition: severity, updated_at: now, updated_by: admin.name,
+        }).eq('id', eventItem.id);
+      }
+
+      // 3. Upload photo if provided
+      let photoUrl = null;
+      if (photo) {
+        const ext = (photo.name.split('.').pop() || 'jpg').toLowerCase();
+        const path = `${item.id}/${eventItem?.id || 'master'}/damage-${Date.now()}.${ext}`;
+        const { error: upErr } = await sb.storage.from('attachments').upload(path, photo, { contentType: photo.type });
+        if (upErr) throw upErr;
+        const { data: { publicUrl } } = sb.storage.from('attachments').getPublicUrl(path);
+        const attRow = {
+          item_id: item.id, storage_path: path, original_name: photo.name,
+          mime_type: photo.type, size: photo.size, url: publicUrl,
+          uploaded_by: admin.name, uploaded_at: now,
+        };
+        if (eventItem) attRow.event_item_id = eventItem.id;
+        await sb.from('attachments').insert(attRow);
+        photoUrl = publicUrl;
+      }
+
+      // 4. History entry
+      await sb.from('history').insert({
+        item_id: item.id, event_item_id: eventItem?.id || null,
+        event_id: eventItem?.event_id || null,
+        action: 'damage_reported',
+        changes: {
+          condition: { from: item.condition, to: severity },
+          note: note.trim() || null,
+          photo_url: photoUrl,
+        },
+        changed_by: admin.name, changed_at: now,
+      });
+
+      onSaved?.();
+      onClose();
+    } catch (e) {
+      setErr(friendlyError(e));
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="backdrop" onClick={onClose}>
+      <form className="modal" style={{maxWidth:440}} onClick={e=>e.stopPropagation()} onSubmit={save}>
+        <h2>Report damage</h2>
+        <div style={{fontSize:12,color:'#9a9a9a',marginBottom:10}}>
+          For <b>{item.name}</b>{eventItem ? ' · on this deployment' : ''}
+        </div>
+        <div className="field"><label>Severity</label>
+          <div className="dept-chips">
+            {[['damaged','Damaged'],['needs_repair','Needs repair'],['needs_cleaning','Needs cleaning']].map(([v, lbl]) => (
+              <button type="button" key={v}
+                className={`dept-chip${severity === v ? ' on' : ''}`}
+                onClick={()=>setSeverity(v)}>{lbl}</button>
+            ))}
+          </div>
+        </div>
+        <div className="field"><label>What happened? (optional)</label>
+          <textarea value={note} onChange={e=>setNote(e.target.value)} rows="3"
+            placeholder="e.g. Wheel snapped during teardown"
+            style={{width:'100%',background:'#1a1a1a',border:'1px solid #2a2a2a',color:'#FAFAFA',padding:'8px 10px',fontFamily:"'Manrope',sans-serif",fontSize:13,resize:'vertical'}} />
+        </div>
+        <div className="field"><label>Photo (optional)</label>
+          <input type="file" accept="image/*" capture="environment"
+            onChange={e=>setPhoto(e.target.files?.[0] || null)} />
+          {photo && (
+            <div style={{fontSize:11,color:'#9a9a9a',marginTop:4}}>{photo.name} · {Math.round(photo.size/1024)}kb</div>
+          )}
+        </div>
+        {err && <div className="err">{err}</div>}
+        <div className="actions">
+          <button type="button" className="btn ghost" onClick={onClose}>Cancel</button>
+          <button type="submit" className="btn primary" disabled={saving}>
+            {saving ? 'Reporting…' : '🛠 Report'}
+          </button>
+        </div>
+      </form>
     </div>
   );
 }
@@ -2440,6 +2564,7 @@ function EventDetail({ event, admin, onBack }) {
   const [manifestOpen, setManifest] = useState(false);
   const [editOpen, setEditOpen]     = useState(false);
   const [dupOpen, setDupOpen]       = useState(false);
+  const [damageFor, setDamageFor]   = useState(null);  // { ei, item } when reporting damage on a row
   // Local copy of the event so edits reflect immediately without round-tripping
   // through EventsTab's list. (Parent list refreshes on next tab visit.)
   const [currentEvent, setCurrentEvent] = useState(event);
@@ -2698,6 +2823,9 @@ function EventDetail({ event, admin, onBack }) {
                         {ei.packed_at ? '↶ Unpack' : '✓ Pack'}
                       </button>
                     )}
+                    {admin && ei.status === 'out' && (
+                      <button className="btn sm" onClick={()=>setDamageFor({ ei, item: it })} title="Report damage">🛠</button>
+                    )}
                     {admin && ei.status !== 'returned' && (
                       <button className="btn sm" onClick={()=>setUpdating(ei)}>Update</button>
                     )}
@@ -2750,6 +2878,11 @@ function EventDetail({ event, admin, onBack }) {
           onClose={()=>setDupOpen(false)}
           onDuplicated={(newEv)=>{ setDupOpen(false); onBack(); /* parent re-renders Events list */ toast(`Duplicated to "${newEv.name}"`, 'ok'); }}
         />
+      )}
+      {damageFor && (
+        <DamageReportModal item={damageFor.item} eventItem={damageFor.ei} admin={admin}
+          onClose={()=>setDamageFor(null)}
+          onSaved={()=>{ setDamageFor(null); load(); toast('Damage reported', 'ok'); }} />
       )}
     </div>
   );
