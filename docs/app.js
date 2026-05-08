@@ -1606,6 +1606,90 @@ function EventFormModal({ admin, event, onClose, onSaved }) {
   );
 }
 
+// ---------- preflight banner ----------
+// Shown at the top of EventDetail for events whose event_date is in the
+// future. Summarises shipment-readiness in one line ("Ready" / "X issues") +
+// click to expand the issue list. Computed from already-loaded data — no
+// extra queries.
+function PreflightBanner({ event, eventItems, items }) {
+  const [expanded, setExpanded] = useState(false);
+
+  // Only relevant for future events with assignments
+  if (!event.event_date) return null;
+  const today = new Date(); today.setHours(0,0,0,0);
+  const eventDay = new Date(event.event_date + 'T00:00:00');
+  if (eventDay.getTime() < today.getTime()) return null;
+
+  const onDeploy   = eventItems.filter(ei => ei.status === 'out');
+  if (onDeploy.length === 0) {
+    return (
+      <div className="preflight preflight-empty">
+        <span className="preflight-icon">○</span>
+        <span className="preflight-summary">No items assigned yet</span>
+      </div>
+    );
+  }
+
+  const unpacked   = onDeploy.filter(ei => !ei.packed_at);
+  const badCondItems = onDeploy
+    .map(ei => ({ ei, it: items[ei.item_id] }))
+    .filter(({ ei }) => ['damaged','needs_repair','needs_cleaning'].includes(ei.condition));
+
+  const issues = [];
+  if (unpacked.length > 0) issues.push({
+    kind: 'unpacked',
+    label: `${unpacked.length} not packed yet`,
+    rows: unpacked.map(ei => ({ ei, it: items[ei.item_id] })),
+  });
+  if (badCondItems.length > 0) issues.push({
+    kind: 'condition',
+    label: `${badCondItems.length} in poor condition`,
+    rows: badCondItems,
+  });
+
+  const totalIssues = unpacked.length + badCondItems.length;
+  const ready = totalIssues === 0;
+  const cls = ready ? 'preflight preflight-ready' : 'preflight preflight-issues';
+
+  const dayMs = 24 * 3600 * 1000;
+  const daysOff = Math.round((eventDay.getTime() - today.getTime()) / dayMs);
+  const whenLabel =
+    daysOff === 0 ? 'Today' :
+    daysOff === 1 ? 'Tomorrow' :
+    `In ${daysOff} days`;
+
+  return (
+    <div className={cls}>
+      <button type="button" className="preflight-head"
+        onClick={()=>!ready && setExpanded(e=>!e)}
+        style={{cursor: ready ? 'default' : 'pointer'}}>
+        <span className="preflight-icon">{ready ? '✓' : '⚠'}</span>
+        <span className="preflight-summary">
+          {ready ? `Ready to ship — ${whenLabel}` : `${totalIssues} issue${totalIssues===1?'':'s'} before ${whenLabel.toLowerCase()}`}
+        </span>
+        {!ready && <span className="preflight-toggle">{expanded ? '▴' : '▾'}</span>}
+      </button>
+      {!ready && expanded && (
+        <div className="preflight-body">
+          {issues.map(group => (
+            <div key={group.kind} className="preflight-group">
+              <div className="preflight-group-head">{group.label}</div>
+              {group.rows.map(({ ei, it }) => (
+                <div key={ei.id} className="preflight-row">
+                  <span className="preflight-row-name">{it?.name || '(unknown)'}</span>
+                  {group.kind === 'condition' && (
+                    <span className={`badge ${ei.condition}`}>{CLABEL[ei.condition]}</span>
+                  )}
+                </div>
+              ))}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ---------- duplicate deployment ----------
 // Clones an event + all its current assignments to a fresh deployment.
 // Items currently out at OTHER deployments are skipped — can't double-book.
@@ -2531,6 +2615,7 @@ function EventDetail({ event, admin, onBack }) {
 
 
       <div className="container">
+        <PreflightBanner event={currentEvent} eventItems={eventItems} items={items} />
         {/* stats */}
         <div style={{display:'flex',gap:10,marginBottom:12}}>
           <div className="stat-box">

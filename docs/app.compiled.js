@@ -2485,6 +2485,96 @@ function EventFormModal({
   }, saving ? isEdit ? 'Saving…' : 'Creating…' : isEdit ? 'Save changes' : 'Create event'))));
 }
 
+// ---------- preflight banner ----------
+// Shown at the top of EventDetail for events whose event_date is in the
+// future. Summarises shipment-readiness in one line ("Ready" / "X issues") +
+// click to expand the issue list. Computed from already-loaded data — no
+// extra queries.
+function PreflightBanner({
+  event,
+  eventItems,
+  items
+}) {
+  const [expanded, setExpanded] = useState(false);
+
+  // Only relevant for future events with assignments
+  if (!event.event_date) return null;
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const eventDay = new Date(event.event_date + 'T00:00:00');
+  if (eventDay.getTime() < today.getTime()) return null;
+  const onDeploy = eventItems.filter(ei => ei.status === 'out');
+  if (onDeploy.length === 0) {
+    return /*#__PURE__*/React.createElement("div", {
+      className: "preflight preflight-empty"
+    }, /*#__PURE__*/React.createElement("span", {
+      className: "preflight-icon"
+    }, "\u25CB"), /*#__PURE__*/React.createElement("span", {
+      className: "preflight-summary"
+    }, "No items assigned yet"));
+  }
+  const unpacked = onDeploy.filter(ei => !ei.packed_at);
+  const badCondItems = onDeploy.map(ei => ({
+    ei,
+    it: items[ei.item_id]
+  })).filter(({
+    ei
+  }) => ['damaged', 'needs_repair', 'needs_cleaning'].includes(ei.condition));
+  const issues = [];
+  if (unpacked.length > 0) issues.push({
+    kind: 'unpacked',
+    label: `${unpacked.length} not packed yet`,
+    rows: unpacked.map(ei => ({
+      ei,
+      it: items[ei.item_id]
+    }))
+  });
+  if (badCondItems.length > 0) issues.push({
+    kind: 'condition',
+    label: `${badCondItems.length} in poor condition`,
+    rows: badCondItems
+  });
+  const totalIssues = unpacked.length + badCondItems.length;
+  const ready = totalIssues === 0;
+  const cls = ready ? 'preflight preflight-ready' : 'preflight preflight-issues';
+  const dayMs = 24 * 3600 * 1000;
+  const daysOff = Math.round((eventDay.getTime() - today.getTime()) / dayMs);
+  const whenLabel = daysOff === 0 ? 'Today' : daysOff === 1 ? 'Tomorrow' : `In ${daysOff} days`;
+  return /*#__PURE__*/React.createElement("div", {
+    className: cls
+  }, /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    className: "preflight-head",
+    onClick: () => !ready && setExpanded(e => !e),
+    style: {
+      cursor: ready ? 'default' : 'pointer'
+    }
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "preflight-icon"
+  }, ready ? '✓' : '⚠'), /*#__PURE__*/React.createElement("span", {
+    className: "preflight-summary"
+  }, ready ? `Ready to ship — ${whenLabel}` : `${totalIssues} issue${totalIssues === 1 ? '' : 's'} before ${whenLabel.toLowerCase()}`), !ready && /*#__PURE__*/React.createElement("span", {
+    className: "preflight-toggle"
+  }, expanded ? '▴' : '▾')), !ready && expanded && /*#__PURE__*/React.createElement("div", {
+    className: "preflight-body"
+  }, issues.map(group => /*#__PURE__*/React.createElement("div", {
+    key: group.kind,
+    className: "preflight-group"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "preflight-group-head"
+  }, group.label), group.rows.map(({
+    ei,
+    it
+  }) => /*#__PURE__*/React.createElement("div", {
+    key: ei.id,
+    className: "preflight-row"
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "preflight-row-name"
+  }, it?.name || '(unknown)'), group.kind === 'condition' && /*#__PURE__*/React.createElement("span", {
+    className: `badge ${ei.condition}`
+  }, CLABEL[ei.condition])))))));
+}
+
 // ---------- duplicate deployment ----------
 // Clones an event + all its current assignments to a fresh deployment.
 // Items currently out at OTHER deployments are skipped — can't double-book.
@@ -3902,7 +3992,11 @@ function EventDetail({
     }
   }, scanMsg), /*#__PURE__*/React.createElement("div", {
     className: "container"
-  }, /*#__PURE__*/React.createElement("div", {
+  }, /*#__PURE__*/React.createElement(PreflightBanner, {
+    event: currentEvent,
+    eventItems: eventItems,
+    items: items
+  }), /*#__PURE__*/React.createElement("div", {
     style: {
       display: 'flex',
       gap: 10,

@@ -1655,6 +1655,73 @@ h1, h2, h3 {
 .stat-box.alert.info { border-bottom-color: var(--accent-info); }
 .stat-box.alert.info .stat-value { color: var(--accent-info); }
 
+/* Pre-flight banner at the top of upcoming-deployment detail.
+   Compact one-line summary by default; expands to show issue rows on click. */
+.preflight {
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  background: var(--surface-1);
+  margin-bottom: 12px;
+  overflow: hidden;
+}
+.preflight-head {
+  display: flex; align-items: center; gap: 10px;
+  width: 100%;
+  padding: 10px 14px;
+  background: transparent; border: 0;
+  text-align: left; color: inherit;
+  font-family: 'Manrope', sans-serif;
+}
+.preflight-icon {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 22px; height: 22px;
+  border-radius: 50%;
+  font-size: 13px; font-weight: 800;
+}
+.preflight-summary {
+  flex: 1;
+  font-size: 13px; font-weight: 600;
+  letter-spacing: 0.02em;
+}
+.preflight-toggle {
+  flex: none;
+  font-size: 12px; color: var(--text-mute, #7A7A7A);
+}
+.preflight-ready    { border-left: 3px solid var(--accent-good); }
+.preflight-ready    .preflight-icon { background: var(--accent-good-bg); color: var(--accent-good); }
+.preflight-ready    .preflight-summary { color: var(--accent-good); }
+.preflight-issues   { border-left: 3px solid var(--accent-warn); }
+.preflight-issues   .preflight-icon { background: var(--accent-warn-bg); color: var(--accent-warn); }
+.preflight-issues   .preflight-summary { color: var(--accent-warn); }
+.preflight-empty    { border-left: 3px solid var(--border-strong); }
+.preflight-empty    .preflight-icon { background: var(--surface-2, #161616); color: var(--text-mute, #7A7A7A); }
+.preflight-empty    .preflight-summary { color: var(--text-mute, #7A7A7A); }
+
+.preflight-body {
+  border-top: 1px solid var(--border);
+  padding: 8px 14px 12px;
+  display: flex; flex-direction: column; gap: 12px;
+}
+.preflight-group-head {
+  font-family: 'Manrope', sans-serif;
+  font-size: 11px; font-weight: 700; letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-mute, #7A7A7A);
+  margin: 6px 0 4px;
+}
+.preflight-row {
+  display: flex; align-items: center; gap: 10px;
+  padding: 6px 0;
+  border-bottom: 1px solid var(--border);
+}
+.preflight-row:last-child { border-bottom: 0; }
+.preflight-row-name {
+  flex: 1;
+  font-family: 'Manrope', sans-serif;
+  font-size: 14px; font-weight: 500;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+
 /* Department chips — multi-select on the deployment form, read-only display
    on the deployment header and dashboard cards. Same visual language. */
 .dept-chips {
