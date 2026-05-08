@@ -6106,25 +6106,23 @@ function CalendarTab({
   const winEnd = new Date(winStart);
   winEnd.setDate(winStart.getDate() + WINDOW_DAYS - 1);
   async function load() {
-    const winStartIso = winStart.toISOString().slice(0, 10);
-    const winEndIso = winEnd.toISOString().slice(0, 10);
-
-    // Events whose date range intersects the visible window
+    // Fetch every event — for SQUATWOLF's scale this stays well under any
+    // size concern, and it avoids two failure modes the windowed query had:
+    //   1. Item view going empty when out-items reference events outside the
+    //      visible window (e.g. an item that was supposed to come back two
+    //      weeks ago — the most overdue, most actionable case).
+    //   2. Date-only DATE columns parsed in UTC vs. local-time window boundary
+    //      drifting bars by a day across timezones.
+    // Both views filter / clamp client-side instead.
     const {
       data: evs
-    } = await sb.from('events').select('id, name, event_date, event_start_date, event_end_date, location, workflow_state, departments, load_in_at, load_out_at').or(`and(event_end_date.gte.${winStartIso},event_start_date.lte.${winEndIso}),and(event_end_date.is.null,event_date.gte.${winStartIso},event_date.lte.${winEndIso})`).order('event_start_date', {
+    } = await sb.from('events').select('id, name, event_date, event_start_date, event_end_date, location, workflow_state, departments, load_in_at, load_out_at').order('event_start_date', {
       ascending: true,
       nullsFirst: false
     });
-
-    // Active event_items — anything still 'out'. We'll filter to the window
-    // client-side because the date used per bar varies (packed_at /
-    // expected_return_date / event dates).
     const {
       data: eiRows
     } = await sb.from('event_items').select('id, event_id, item_id, status, packed_at, expected_return_date').eq('status', 'out');
-
-    // Master items — needed for row labels in the item view
     const itemIds = [...new Set((eiRows || []).map(e => e.item_id))];
     let itemsMap = {};
     if (itemIds.length) {
@@ -6209,12 +6207,21 @@ function CalendarTab({
       const startSrc = ei.packed_at || ev.load_in_at || ev.event_start_date || ev.event_date;
       const endSrc = ei.expected_return_date || ev.load_out_at || ev.event_end_date || ev.event_date;
       if (!startSrc || !endSrc) return;
-      const startD = new Date(startSrc);
-      const endD = new Date(endSrc);
-      // Intersect with window
-      if (endD < winStart || startD > winEnd) return;
-      // Overdue: event end has passed but the item is still 'out' (workflow not closed)
+      let startD = new Date(startSrc);
+      let endD = new Date(endSrc);
+      // Overdue: event end has passed but the item is still 'out' (workflow
+      // not closed). Always include overdue bars even if their dates predate
+      // the visible window — they're the most actionable rows on this page.
       const overdue = endD.getTime() < today.getTime() && ev.workflow_state !== 'closed';
+      if (overdue && endD < winStart) {
+        // Bar is entirely before the window. Show a marker spanning
+        // [winStart, today] so the user sees there's an overdue item
+        // without needing to pan the calendar.
+        startD = new Date(winStart);
+        endD = new Date(today);
+      } else if (!overdue && (endD < winStart || startD > winEnd)) {
+        return;
+      }
       if (!byItem[it.id]) byItem[it.id] = {
         item: it,
         bars: []
@@ -6251,6 +6258,10 @@ function CalendarTab({
       const endD = new Date(end + 'T00:00:00');
       const itemsStillOut = outCountByEvent[ev.id] || 0;
       const overdue = endD.getTime() < today.getTime() && itemsStillOut > 0;
+      // Show only events whose range intersects the visible window —
+      // OR overdue events with items still out (always actionable).
+      const intersects = !(endD < winStart || startD > winEnd);
+      if (!intersects && !overdue) return null;
       return {
         ev,
         startD,
