@@ -2490,41 +2490,45 @@ function ItemsTab({ admin, openItemId, onOpened }) {
 const OVERDUE_DAYS = 7;
 
 function DashboardTab({ admin, onGoTo }) {
-  const [items, setItems]   = useState(null);
-  const [outRows, setOut]   = useState([]);  // event_items rows with status='out' + joined event
-  const [allEis, setAllEis] = useState([]);  // every event_item (used for "never used" calc)
-  const [recent, setRecent] = useState([]);
+  const [items, setItems]     = useState(null);
+  const [outRows, setOut]     = useState([]);   // event_items rows with status='out' + joined event
+  const [upcoming, setUpcoming] = useState([]); // future events with their assigned event_items nested
   const [viewing, setViewing] = useState(null);
   const thumbs = useItemThumbs();
 
   async function load() {
     try {
-      const [itemsRes, outRes, allRes, hist] = await Promise.all([
+      const todayIso = new Date().toISOString().slice(0, 10);
+      const [itemsRes, outRes, upRes] = await Promise.all([
         sb.from('items').select('*').order('name'),
         sb.from('event_items').select('*, events(id, name, event_date)').eq('status','out'),
-        sb.from('event_items').select('item_id'),
-        sb.from('history').select('*').order('changed_at', { ascending: false }).limit(8),
+        // events from today onward, with their assigned items nested for the
+        // thumb strip + count. limit 10 — anything further out belongs in the
+        // Deployments tab, not the dashboard.
+        sb.from('events')
+          .select('id, name, event_date, location, event_items(item_id, status)')
+          .gte('event_date', todayIso)
+          .order('event_date', { ascending: true })
+          .limit(10),
       ]);
-      // any individual sub-query error -> surface but keep what we got
-      const errs = [itemsRes.error, outRes.error, allRes.error, hist.error].filter(Boolean);
+      const errs = [itemsRes.error, outRes.error, upRes.error].filter(Boolean);
       if (errs.length) toast(`Couldn't load all dashboard data: ${friendlyError(errs[0])}`, 'err');
       setItems(itemsRes.data || []);
       setOut(outRes.data || []);
-      setAllEis(allRes.data || []);
-      setRecent(hist.data || []);
+      setUpcoming(upRes.data || []);
     } catch (e) {
       toast(`Couldn't load dashboard: ${friendlyError(e)}`, 'err');
-      setItems([]); setOut([]); setAllEis([]); setRecent([]);  // unblock UI from "Loading…"
+      setItems([]); setOut([]); setUpcoming([]);
     }
   }
   useEffect(() => { load(); }, []);
 
-  // realtime — anything changes, reload
+  // realtime — items, deployments, and assignments all feed this view
   useEffect(() => {
     const ch = sb.channel('dashboard')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'items' }, load)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'items' },       load)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'event_items' }, load)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'history' }, load)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'events' },      load)
       .subscribe();
     return () => sb.removeChannel(ch);
   }, []);
@@ -2534,7 +2538,12 @@ function DashboardTab({ admin, onGoTo }) {
   const itemMap = {};
   items.forEach(it => itemMap[it.id] = it);
 
-  // Currently out — group by deployment
+  // Currently out — group by deployment, mark which rows are overdue
+  const cutoff = Date.now() - OVERDUE_DAYS * 24 * 3600 * 1000;
+  const isOverdueRow = (r) => {
+    const d = r.events?.event_date ? new Date(r.events.event_date).getTime() : null;
+    return d !== null && d < cutoff;
+  };
   const outByEvent = {};
   outRows.forEach(r => {
     const eid = r.events?.id || r.event_id;
@@ -2542,41 +2551,29 @@ function DashboardTab({ admin, onGoTo }) {
     outByEvent[eid].rows.push(r);
   });
   const outDeployments = Object.values(outByEvent);
-
-  // Overdue — out and event_date older than OVERDUE_DAYS
-  const cutoff = Date.now() - OVERDUE_DAYS * 24 * 3600 * 1000;
-  const overdue = outRows.filter(r => {
-    const d = r.events?.event_date ? new Date(r.events.event_date).getTime() : null;
-    return d !== null && d < cutoff;
-  });
+  const overdueCount = outRows.filter(isOverdueRow).length;
 
   // Needs attention — items in damaged / needs_repair / needs_cleaning
   const needsAttention = items.filter(it =>
     it.condition === 'damaged' || it.condition === 'needs_repair' || it.condition === 'needs_cleaning'
   );
 
-  // Items never assigned — id not in any event_item row
-  const everUsed = new Set(allEis.map(e => e.item_id));
-  const neverUsed = items.filter(it => !everUsed.has(it.id));
-
-  const totalItems   = items.length;
-  const totalOut     = outRows.length;
-  const totalDeploys = new Set(allEis.map(e => e.event_id)).size; // distinct deployments that ever had items
+  const totalOut = outRows.length;
 
   return (
     <div className="container">
-      {/* top KPI row — alert classes light up when something needs attention */}
+      {/* KPI row — leads with action-oriented numbers, not vanity totals */}
       <div className="kpi-row">
-        <div className="stat-box">
-          <div className="stat-value">{totalItems}</div>
-          <div className="stat-label">Total items</div>
+        <div className={`stat-box${upcoming.length > 0 ? ' alert info' : ''}`}>
+          <div className="stat-value">{upcoming.length}</div>
+          <div className="stat-label">Up next</div>
         </div>
         <div className={`stat-box${totalOut > 0 ? ' alert' : ''}`}>
           <div className="stat-value">{totalOut}</div>
-          <div className="stat-label">Currently out</div>
+          <div className="stat-label">Items out</div>
         </div>
-        <div className={`stat-box${overdue.length > 0 ? ' alert danger' : ''}`}>
-          <div className="stat-value">{overdue.length}</div>
+        <div className={`stat-box${overdueCount > 0 ? ' alert danger' : ''}`}>
+          <div className="stat-value">{overdueCount}</div>
           <div className="stat-label">Overdue</div>
         </div>
         <div className={`stat-box${needsAttention.length > 0 ? ' alert' : ''}`}>
@@ -2585,31 +2582,56 @@ function DashboardTab({ admin, onGoTo }) {
         </div>
       </div>
 
-      {/* Overdue */}
+      {/* Up next — upcoming deployments lead the dashboard */}
       <DashSection
-        title={`Overdue (> ${OVERDUE_DAYS} days)`}
-        emptyText="ALL CLEAR — NOTHING OVERDUE"
-        allClear
+        title="Up next"
+        emptyText="No upcoming deployments scheduled."
       >
-        {overdue.length > 0 && overdue.map(r => {
-          const it = itemMap[r.item_id];
-          const days = r.events?.event_date
-            ? Math.floor((Date.now() - new Date(r.events.event_date).getTime())/(24*3600*1000))
-            : null;
-          return (
-            <div className="dash-row dash-row-overdue" key={r.id} onClick={()=>it && setViewing(it)}>
-              <ItemThumb url={thumbs[r.item_id]} name={it?.name} category={it?.category} />
-              <div style={{flex:1,minWidth:0}}>
-                <div className="dash-row-name">{it?.name || '(missing item)'}</div>
-                <div className="dash-row-sub">Out at {r.events?.name||'—'} · {days!=null?`${days}d past event`:'—'}</div>
-              </div>
-              <span className="badge status-out">Out</span>
-            </div>
-          );
-        })}
+        {upcoming.map(ev => (
+          <UpcomingCard key={ev.id} ev={ev} itemMap={itemMap} thumbs={thumbs}
+            onOpen={()=>onGoTo?.('events', ev.id)} />
+        ))}
       </DashSection>
 
-      {/* Needs attention */}
+      {/* Currently out — by deployment, overdue rows highlighted via the
+          .dash-row-overdue accent border */}
+      <DashSection
+        title="Currently out"
+        emptyText="ALL CLEAR — NOTHING CHECKED OUT"
+        allClear
+      >
+        {outDeployments.map(({event, rows}) => (
+          <div className="dash-group" key={event?.id || Math.random()}>
+            <div className="dash-group-head">
+              <span className="dash-group-name">{event?.name || '(unknown deployment)'}</span>
+              <span className="dash-group-count">{rows.length}</span>
+            </div>
+            {rows.map(r => {
+              const it = itemMap[r.item_id];
+              const overdue = isOverdueRow(r);
+              const days = r.events?.event_date
+                ? Math.floor((Date.now() - new Date(r.events.event_date).getTime())/(24*3600*1000))
+                : null;
+              const cls = overdue ? 'dash-row dash-row-overdue' : 'dash-row dash-row-out';
+              return (
+                <div className={cls} key={r.id} onClick={()=>it && setViewing(it)}>
+                  <ItemThumb url={thumbs[r.item_id]} name={it?.name} category={it?.category} />
+                  <div style={{flex:1,minWidth:0}}>
+                    <div className="dash-row-name">{it?.name || '(missing item)'}</div>
+                    <div className="dash-row-sub">
+                      At: {r.current_location||'—'}
+                      {overdue && days != null && <> · <span style={{color:'var(--accent-bad)'}}>{days}d past event</span></>}
+                    </div>
+                  </div>
+                  <span className={`badge ${r.condition||'good'}`}>{CLABEL[r.condition]||r.condition||'—'}</span>
+                </div>
+              );
+            })}
+          </div>
+        ))}
+      </DashSection>
+
+      {/* Needs attention — items in damaged / repair / cleaning states */}
       <DashSection
         title="Needs attention"
         emptyText="ALL CLEAR — EVERYTHING IN GOOD CONDITION"
@@ -2627,80 +2649,60 @@ function DashboardTab({ admin, onGoTo }) {
         ))}
       </DashSection>
 
-      {/* Currently out — by deployment */}
-      <DashSection
-        title="Currently out"
-        emptyText="ALL CLEAR — NOTHING CHECKED OUT"
-        allClear
-      >
-        {outDeployments.map(({event, rows}) => (
-          <div className="dash-group" key={event?.id || Math.random()}>
-            <div className="dash-group-head">
-              <span className="dash-group-name">{event?.name || '(unknown deployment)'}</span>
-              <span className="dash-group-count">{rows.length}</span>
-            </div>
-            {rows.map(r => {
-              const it = itemMap[r.item_id];
-              return (
-                <div className="dash-row dash-row-out" key={r.id} onClick={()=>it && setViewing(it)}>
-                  <ItemThumb url={thumbs[r.item_id]} name={it?.name} category={it?.category} />
-                  <div style={{flex:1,minWidth:0}}>
-                    <div className="dash-row-name">{it?.name || '(missing item)'}</div>
-                    <div className="dash-row-sub">At: {r.current_location||'—'}</div>
-                  </div>
-                  <span className={`badge ${r.condition||'good'}`}>{CLABEL[r.condition]||r.condition||'—'}</span>
-                </div>
-              );
-            })}
-          </div>
-        ))}
-      </DashSection>
-
-      {/* Never used */}
-      {neverUsed.length > 0 && (
-        <DashSection title="Never assigned" emptyText="">
-          {neverUsed.slice(0, 12).map(it => (
-            <div className="dash-row" key={it.id} onClick={()=>setViewing(it)}>
-              <ItemThumb url={thumbs[it.id]} name={it.name} category={it.category} />
-              <div style={{flex:1,minWidth:0}}>
-                <div className="dash-row-name">{it.name}</div>
-                <div className="dash-row-sub">{it.category||'—'} · {it.storage_location||'No storage set'}</div>
-              </div>
-              <span className={`badge ${it.condition}`}>{CLABEL[it.condition]}</span>
-            </div>
-          ))}
-          {neverUsed.length > 12 && (
-            <div className="dash-row-sub" style={{padding:'4px 12px'}}>
-              + {neverUsed.length - 12} more
-            </div>
-          )}
-        </DashSection>
-      )}
-
-      {/* Recent activity */}
-      <DashSection title="Recent activity" emptyText="No activity yet.">
-        {recent.map(ev => {
-          const it = itemMap[ev.item_id];
-          return (
-            <div className="dash-row" key={ev.id} onClick={()=>{
-              if (it) setViewing(it);
-            }}>
-              <ItemThumb url={thumbs[ev.item_id]} name={it?.name} category={it?.category} />
-              <div style={{flex:1,minWidth:0}}>
-                <div className="dash-row-name" style={{fontSize:14}}>
-                  {actionLabel(ev.action)}{it ? ` · ${it.name}` : ''}
-                </div>
-                <div className="dash-row-sub">{ev.changed_by} · {fmtTime(ev.changed_at)}</div>
-              </div>
-            </div>
-          );
-        })}
-      </DashSection>
-
       {viewing && (
         <ItemDetailModal item={viewing} admin={admin} onClose={()=>setViewing(null)}
           onEdit={()=>setViewing(null)} />
       )}
+    </div>
+  );
+}
+
+// ---------- Upcoming deployment card ----------
+// Used on the dashboard's "Up next" section. Larger than a row to give the
+// date prominence and the assigned-items thumb strip room to breathe.
+function UpcomingCard({ ev, itemMap, thumbs, onOpen }) {
+  const date = ev.event_date ? new Date(ev.event_date + 'T00:00:00') : null;
+  const today = new Date(); today.setHours(0,0,0,0);
+  const dayMs = 24 * 3600 * 1000;
+  const daysOff = date ? Math.round((date.getTime() - today.getTime()) / dayMs) : null;
+  const relLabel =
+    daysOff === 0  ? 'Today' :
+    daysOff === 1  ? 'Tomorrow' :
+    daysOff != null && daysOff <= 7 ? `In ${daysOff} days` :
+    date ? date.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' }) :
+    'Date TBD';
+  const monthLabel = date ? date.toLocaleDateString(undefined, { month: 'short' }).toUpperCase() : '—';
+  const dayLabel   = date ? date.getDate() : '?';
+  const eis = ev.event_items || [];
+  const itemCount = eis.length;
+  const stripItems = eis.slice(0, 5).map(ei => itemMap[ei.item_id]).filter(Boolean);
+  const overflow = Math.max(0, itemCount - stripItems.length);
+
+  return (
+    <div className="upcoming-card clickable" onClick={onOpen}>
+      <div className="upcoming-date">
+        <div className="upcoming-date-day">{dayLabel}</div>
+        <div className="upcoming-date-month">{monthLabel}</div>
+      </div>
+      <div className="upcoming-body">
+        <div className="upcoming-head">
+          <div className="upcoming-name">{ev.name}</div>
+          <div className="upcoming-rel">{relLabel}</div>
+        </div>
+        <div className="upcoming-sub">
+          {ev.location || 'No location set'}
+          {' · '}
+          {itemCount === 0 ? 'No items assigned yet' : `${itemCount} item${itemCount === 1 ? '' : 's'}`}
+        </div>
+        {stripItems.length > 0 && (
+          <div className="upcoming-strip">
+            {stripItems.map((it, i) => (
+              <ItemThumb key={i} url={thumbs[it.id]} name={it.name} category={it.category} />
+            ))}
+            {overflow > 0 && <span className="upcoming-strip-more">+{overflow}</span>}
+          </div>
+        )}
+      </div>
     </div>
   );
 }
@@ -3192,7 +3194,7 @@ function App() {
         ))}
       </div>
 
-      {tab === 'dashboard' && <DashboardTab admin={admin} />}
+      {tab === 'dashboard' && <DashboardTab admin={admin} onGoTo={(t, id) => { setTab(t); if (t === 'events') setOpenEventId(id); if (t === 'items') setOpenItemId(id); }} />}
       {tab === 'items'     && <ItemsTab  admin={admin} openItemId={openItemId}  onOpened={()=>setOpenItemId(null)} />}
       {tab === 'events'    && <EventsTab admin={admin} openEventId={openEventId} onOpened={()=>setOpenEventId(null)} />}
 

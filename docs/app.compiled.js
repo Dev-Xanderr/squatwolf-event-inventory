@@ -3824,35 +3824,36 @@ function DashboardTab({
 }) {
   const [items, setItems] = useState(null);
   const [outRows, setOut] = useState([]); // event_items rows with status='out' + joined event
-  const [allEis, setAllEis] = useState([]); // every event_item (used for "never used" calc)
-  const [recent, setRecent] = useState([]);
+  const [upcoming, setUpcoming] = useState([]); // future events with their assigned event_items nested
   const [viewing, setViewing] = useState(null);
   const thumbs = useItemThumbs();
   async function load() {
     try {
-      const [itemsRes, outRes, allRes, hist] = await Promise.all([sb.from('items').select('*').order('name'), sb.from('event_items').select('*, events(id, name, event_date)').eq('status', 'out'), sb.from('event_items').select('item_id'), sb.from('history').select('*').order('changed_at', {
-        ascending: false
-      }).limit(8)]);
-      // any individual sub-query error -> surface but keep what we got
-      const errs = [itemsRes.error, outRes.error, allRes.error, hist.error].filter(Boolean);
+      const todayIso = new Date().toISOString().slice(0, 10);
+      const [itemsRes, outRes, upRes] = await Promise.all([sb.from('items').select('*').order('name'), sb.from('event_items').select('*, events(id, name, event_date)').eq('status', 'out'),
+      // events from today onward, with their assigned items nested for the
+      // thumb strip + count. limit 10 — anything further out belongs in the
+      // Deployments tab, not the dashboard.
+      sb.from('events').select('id, name, event_date, location, event_items(item_id, status)').gte('event_date', todayIso).order('event_date', {
+        ascending: true
+      }).limit(10)]);
+      const errs = [itemsRes.error, outRes.error, upRes.error].filter(Boolean);
       if (errs.length) toast(`Couldn't load all dashboard data: ${friendlyError(errs[0])}`, 'err');
       setItems(itemsRes.data || []);
       setOut(outRes.data || []);
-      setAllEis(allRes.data || []);
-      setRecent(hist.data || []);
+      setUpcoming(upRes.data || []);
     } catch (e) {
       toast(`Couldn't load dashboard: ${friendlyError(e)}`, 'err');
       setItems([]);
       setOut([]);
-      setAllEis([]);
-      setRecent([]); // unblock UI from "Loading…"
+      setUpcoming([]);
     }
   }
   useEffect(() => {
     load();
   }, []);
 
-  // realtime — anything changes, reload
+  // realtime — items, deployments, and assignments all feed this view
   useEffect(() => {
     const ch = sb.channel('dashboard').on('postgres_changes', {
       event: '*',
@@ -3865,7 +3866,7 @@ function DashboardTab({
     }, load).on('postgres_changes', {
       event: '*',
       schema: 'public',
-      table: 'history'
+      table: 'events'
     }, load).subscribe();
     return () => sb.removeChannel(ch);
   }, []);
@@ -3877,7 +3878,12 @@ function DashboardTab({
   const itemMap = {};
   items.forEach(it => itemMap[it.id] = it);
 
-  // Currently out — group by deployment
+  // Currently out — group by deployment, mark which rows are overdue
+  const cutoff = Date.now() - OVERDUE_DAYS * 24 * 3600 * 1000;
+  const isOverdueRow = r => {
+    const d = r.events?.event_date ? new Date(r.events.event_date).getTime() : null;
+    return d !== null && d < cutoff;
+  };
   const outByEvent = {};
   outRows.forEach(r => {
     const eid = r.events?.id || r.event_id;
@@ -3888,45 +3894,32 @@ function DashboardTab({
     outByEvent[eid].rows.push(r);
   });
   const outDeployments = Object.values(outByEvent);
-
-  // Overdue — out and event_date older than OVERDUE_DAYS
-  const cutoff = Date.now() - OVERDUE_DAYS * 24 * 3600 * 1000;
-  const overdue = outRows.filter(r => {
-    const d = r.events?.event_date ? new Date(r.events.event_date).getTime() : null;
-    return d !== null && d < cutoff;
-  });
+  const overdueCount = outRows.filter(isOverdueRow).length;
 
   // Needs attention — items in damaged / needs_repair / needs_cleaning
   const needsAttention = items.filter(it => it.condition === 'damaged' || it.condition === 'needs_repair' || it.condition === 'needs_cleaning');
-
-  // Items never assigned — id not in any event_item row
-  const everUsed = new Set(allEis.map(e => e.item_id));
-  const neverUsed = items.filter(it => !everUsed.has(it.id));
-  const totalItems = items.length;
   const totalOut = outRows.length;
-  const totalDeploys = new Set(allEis.map(e => e.event_id)).size; // distinct deployments that ever had items
-
   return /*#__PURE__*/React.createElement("div", {
     className: "container"
   }, /*#__PURE__*/React.createElement("div", {
     className: "kpi-row"
   }, /*#__PURE__*/React.createElement("div", {
-    className: "stat-box"
+    className: `stat-box${upcoming.length > 0 ? ' alert info' : ''}`
   }, /*#__PURE__*/React.createElement("div", {
     className: "stat-value"
-  }, totalItems), /*#__PURE__*/React.createElement("div", {
+  }, upcoming.length), /*#__PURE__*/React.createElement("div", {
     className: "stat-label"
-  }, "Total items")), /*#__PURE__*/React.createElement("div", {
+  }, "Up next")), /*#__PURE__*/React.createElement("div", {
     className: `stat-box${totalOut > 0 ? ' alert' : ''}`
   }, /*#__PURE__*/React.createElement("div", {
     className: "stat-value"
   }, totalOut), /*#__PURE__*/React.createElement("div", {
     className: "stat-label"
-  }, "Currently out")), /*#__PURE__*/React.createElement("div", {
-    className: `stat-box${overdue.length > 0 ? ' alert danger' : ''}`
+  }, "Items out")), /*#__PURE__*/React.createElement("div", {
+    className: `stat-box${overdueCount > 0 ? ' alert danger' : ''}`
   }, /*#__PURE__*/React.createElement("div", {
     className: "stat-value"
-  }, overdue.length), /*#__PURE__*/React.createElement("div", {
+  }, overdueCount), /*#__PURE__*/React.createElement("div", {
     className: "stat-label"
   }, "Overdue")), /*#__PURE__*/React.createElement("div", {
     className: `stat-box${needsAttention.length > 0 ? ' alert' : ''}`
@@ -3935,14 +3928,37 @@ function DashboardTab({
   }, needsAttention.length), /*#__PURE__*/React.createElement("div", {
     className: "stat-label"
   }, "Needs attention"))), /*#__PURE__*/React.createElement(DashSection, {
-    title: `Overdue (> ${OVERDUE_DAYS} days)`,
-    emptyText: "ALL CLEAR \u2014 NOTHING OVERDUE",
+    title: "Up next",
+    emptyText: "No upcoming deployments scheduled."
+  }, upcoming.map(ev => /*#__PURE__*/React.createElement(UpcomingCard, {
+    key: ev.id,
+    ev: ev,
+    itemMap: itemMap,
+    thumbs: thumbs,
+    onOpen: () => onGoTo?.('events', ev.id)
+  }))), /*#__PURE__*/React.createElement(DashSection, {
+    title: "Currently out",
+    emptyText: "ALL CLEAR \u2014 NOTHING CHECKED OUT",
     allClear: true
-  }, overdue.length > 0 && overdue.map(r => {
+  }, outDeployments.map(({
+    event,
+    rows
+  }) => /*#__PURE__*/React.createElement("div", {
+    className: "dash-group",
+    key: event?.id || Math.random()
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "dash-group-head"
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "dash-group-name"
+  }, event?.name || '(unknown deployment)'), /*#__PURE__*/React.createElement("span", {
+    className: "dash-group-count"
+  }, rows.length)), rows.map(r => {
     const it = itemMap[r.item_id];
+    const overdue = isOverdueRow(r);
     const days = r.events?.event_date ? Math.floor((Date.now() - new Date(r.events.event_date).getTime()) / (24 * 3600 * 1000)) : null;
+    const cls = overdue ? 'dash-row dash-row-overdue' : 'dash-row dash-row-out';
     return /*#__PURE__*/React.createElement("div", {
-      className: "dash-row dash-row-overdue",
+      className: cls,
       key: r.id,
       onClick: () => it && setViewing(it)
     }, /*#__PURE__*/React.createElement(ItemThumb, {
@@ -3958,10 +3974,14 @@ function DashboardTab({
       className: "dash-row-name"
     }, it?.name || '(missing item)'), /*#__PURE__*/React.createElement("div", {
       className: "dash-row-sub"
-    }, "Out at ", r.events?.name || '—', " \xB7 ", days != null ? `${days}d past event` : '—')), /*#__PURE__*/React.createElement("span", {
-      className: "badge status-out"
-    }, "Out"));
-  })), /*#__PURE__*/React.createElement(DashSection, {
+    }, "At: ", r.current_location || '—', overdue && days != null && /*#__PURE__*/React.createElement(React.Fragment, null, " \xB7 ", /*#__PURE__*/React.createElement("span", {
+      style: {
+        color: 'var(--accent-bad)'
+      }
+    }, days, "d past event")))), /*#__PURE__*/React.createElement("span", {
+      className: `badge ${r.condition || 'good'}`
+    }, CLABEL[r.condition] || r.condition || '—'));
+  })))), /*#__PURE__*/React.createElement(DashSection, {
     title: "Needs attention",
     emptyText: "ALL CLEAR \u2014 EVERYTHING IN GOOD CONDITION",
     allClear: true
@@ -3984,105 +4004,70 @@ function DashboardTab({
     className: "dash-row-sub"
   }, it.category || '—', " \xB7 ", it.storage_location || 'No storage set')), /*#__PURE__*/React.createElement("span", {
     className: `badge ${it.condition}`
-  }, CLABEL[it.condition])))), /*#__PURE__*/React.createElement(DashSection, {
-    title: "Currently out",
-    emptyText: "ALL CLEAR \u2014 NOTHING CHECKED OUT",
-    allClear: true
-  }, outDeployments.map(({
-    event,
-    rows
-  }) => /*#__PURE__*/React.createElement("div", {
-    className: "dash-group",
-    key: event?.id || Math.random()
-  }, /*#__PURE__*/React.createElement("div", {
-    className: "dash-group-head"
-  }, /*#__PURE__*/React.createElement("span", {
-    className: "dash-group-name"
-  }, event?.name || '(unknown deployment)'), /*#__PURE__*/React.createElement("span", {
-    className: "dash-group-count"
-  }, rows.length)), rows.map(r => {
-    const it = itemMap[r.item_id];
-    return /*#__PURE__*/React.createElement("div", {
-      className: "dash-row dash-row-out",
-      key: r.id,
-      onClick: () => it && setViewing(it)
-    }, /*#__PURE__*/React.createElement(ItemThumb, {
-      url: thumbs[r.item_id],
-      name: it?.name,
-      category: it?.category
-    }), /*#__PURE__*/React.createElement("div", {
-      style: {
-        flex: 1,
-        minWidth: 0
-      }
-    }, /*#__PURE__*/React.createElement("div", {
-      className: "dash-row-name"
-    }, it?.name || '(missing item)'), /*#__PURE__*/React.createElement("div", {
-      className: "dash-row-sub"
-    }, "At: ", r.current_location || '—')), /*#__PURE__*/React.createElement("span", {
-      className: `badge ${r.condition || 'good'}`
-    }, CLABEL[r.condition] || r.condition || '—'));
-  })))), neverUsed.length > 0 && /*#__PURE__*/React.createElement(DashSection, {
-    title: "Never assigned",
-    emptyText: ""
-  }, neverUsed.slice(0, 12).map(it => /*#__PURE__*/React.createElement("div", {
-    className: "dash-row",
-    key: it.id,
-    onClick: () => setViewing(it)
-  }, /*#__PURE__*/React.createElement(ItemThumb, {
-    url: thumbs[it.id],
-    name: it.name,
-    category: it.category
-  }), /*#__PURE__*/React.createElement("div", {
-    style: {
-      flex: 1,
-      minWidth: 0
-    }
-  }, /*#__PURE__*/React.createElement("div", {
-    className: "dash-row-name"
-  }, it.name), /*#__PURE__*/React.createElement("div", {
-    className: "dash-row-sub"
-  }, it.category || '—', " \xB7 ", it.storage_location || 'No storage set')), /*#__PURE__*/React.createElement("span", {
-    className: `badge ${it.condition}`
-  }, CLABEL[it.condition]))), neverUsed.length > 12 && /*#__PURE__*/React.createElement("div", {
-    className: "dash-row-sub",
-    style: {
-      padding: '4px 12px'
-    }
-  }, "+ ", neverUsed.length - 12, " more")), /*#__PURE__*/React.createElement(DashSection, {
-    title: "Recent activity",
-    emptyText: "No activity yet."
-  }, recent.map(ev => {
-    const it = itemMap[ev.item_id];
-    return /*#__PURE__*/React.createElement("div", {
-      className: "dash-row",
-      key: ev.id,
-      onClick: () => {
-        if (it) setViewing(it);
-      }
-    }, /*#__PURE__*/React.createElement(ItemThumb, {
-      url: thumbs[ev.item_id],
-      name: it?.name,
-      category: it?.category
-    }), /*#__PURE__*/React.createElement("div", {
-      style: {
-        flex: 1,
-        minWidth: 0
-      }
-    }, /*#__PURE__*/React.createElement("div", {
-      className: "dash-row-name",
-      style: {
-        fontSize: 14
-      }
-    }, actionLabel(ev.action), it ? ` · ${it.name}` : ''), /*#__PURE__*/React.createElement("div", {
-      className: "dash-row-sub"
-    }, ev.changed_by, " \xB7 ", fmtTime(ev.changed_at))));
-  })), viewing && /*#__PURE__*/React.createElement(ItemDetailModal, {
+  }, CLABEL[it.condition])))), viewing && /*#__PURE__*/React.createElement(ItemDetailModal, {
     item: viewing,
     admin: admin,
     onClose: () => setViewing(null),
     onEdit: () => setViewing(null)
   }));
+}
+
+// ---------- Upcoming deployment card ----------
+// Used on the dashboard's "Up next" section. Larger than a row to give the
+// date prominence and the assigned-items thumb strip room to breathe.
+function UpcomingCard({
+  ev,
+  itemMap,
+  thumbs,
+  onOpen
+}) {
+  const date = ev.event_date ? new Date(ev.event_date + 'T00:00:00') : null;
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const dayMs = 24 * 3600 * 1000;
+  const daysOff = date ? Math.round((date.getTime() - today.getTime()) / dayMs) : null;
+  const relLabel = daysOff === 0 ? 'Today' : daysOff === 1 ? 'Tomorrow' : daysOff != null && daysOff <= 7 ? `In ${daysOff} days` : date ? date.toLocaleDateString(undefined, {
+    weekday: 'short',
+    month: 'short',
+    day: 'numeric'
+  }) : 'Date TBD';
+  const monthLabel = date ? date.toLocaleDateString(undefined, {
+    month: 'short'
+  }).toUpperCase() : '—';
+  const dayLabel = date ? date.getDate() : '?';
+  const eis = ev.event_items || [];
+  const itemCount = eis.length;
+  const stripItems = eis.slice(0, 5).map(ei => itemMap[ei.item_id]).filter(Boolean);
+  const overflow = Math.max(0, itemCount - stripItems.length);
+  return /*#__PURE__*/React.createElement("div", {
+    className: "upcoming-card clickable",
+    onClick: onOpen
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "upcoming-date"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "upcoming-date-day"
+  }, dayLabel), /*#__PURE__*/React.createElement("div", {
+    className: "upcoming-date-month"
+  }, monthLabel)), /*#__PURE__*/React.createElement("div", {
+    className: "upcoming-body"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "upcoming-head"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "upcoming-name"
+  }, ev.name), /*#__PURE__*/React.createElement("div", {
+    className: "upcoming-rel"
+  }, relLabel)), /*#__PURE__*/React.createElement("div", {
+    className: "upcoming-sub"
+  }, ev.location || 'No location set', ' · ', itemCount === 0 ? 'No items assigned yet' : `${itemCount} item${itemCount === 1 ? '' : 's'}`), stripItems.length > 0 && /*#__PURE__*/React.createElement("div", {
+    className: "upcoming-strip"
+  }, stripItems.map((it, i) => /*#__PURE__*/React.createElement(ItemThumb, {
+    key: i,
+    url: thumbs[it.id],
+    name: it.name,
+    category: it.category
+  })), overflow > 0 && /*#__PURE__*/React.createElement("span", {
+    className: "upcoming-strip-more"
+  }, "+", overflow))));
 }
 function DashSection({
   title,
@@ -4784,7 +4769,12 @@ function App() {
     onClick: () => setTab(key),
     className: tab === key ? 'active' : ''
   }, label))), tab === 'dashboard' && /*#__PURE__*/React.createElement(DashboardTab, {
-    admin: admin
+    admin: admin,
+    onGoTo: (t, id) => {
+      setTab(t);
+      if (t === 'events') setOpenEventId(id);
+      if (t === 'items') setOpenItemId(id);
+    }
   }), tab === 'items' && /*#__PURE__*/React.createElement(ItemsTab, {
     admin: admin,
     openItemId: openItemId,
