@@ -4104,6 +4104,178 @@ function DashSection({ title, emptyText, allClear, children }) {
   );
 }
 
+// ---------- calendar tab ----------
+// Horizontal-bar timeline of deployments. Each row is one event; the bar
+// spans event_start_date → event_end_date. Today marker is a vertical line.
+// Colour reflects workflow_state — overdue deployments (end-date passed but
+// items still out) get the danger tint regardless of state.
+//
+// Default window: today − 7 days through today + 21. Prev/next paginate by
+// 14-day windows. Falls back gracefully for events that pre-date the schema
+// migration and only have a single event_date.
+function CalendarTab({ onOpenDeployment }) {
+  const [events, setEvents]   = useState(null);
+  const [outRows, setOutRows] = useState([]);
+  const [winStart, setWinStart] = useState(() => {
+    const d = new Date(); d.setHours(0,0,0,0); d.setDate(d.getDate() - 7); return d;
+  });
+  const WINDOW_DAYS = 28;
+
+  const winEnd = new Date(winStart); winEnd.setDate(winStart.getDate() + WINDOW_DAYS - 1);
+
+  async function load() {
+    // Fetch events whose range intersects the visible window.
+    // SQL: event_end_date >= window_start AND event_start_date <= window_end
+    // (with fallback to event_date for legacy rows where the new fields are null).
+    const winStartIso = winStart.toISOString().slice(0,10);
+    const winEndIso   = winEnd.toISOString().slice(0,10);
+    const { data: evs } = await sb.from('events')
+      .select('id, name, event_date, event_start_date, event_end_date, location, workflow_state, departments')
+      .or(`and(event_end_date.gte.${winStartIso},event_start_date.lte.${winEndIso}),and(event_end_date.is.null,event_date.gte.${winStartIso},event_date.lte.${winEndIso})`)
+      .order('event_start_date', { ascending: true, nullsFirst: false });
+    // Items currently out — used to detect overdue (event ended but items not returned)
+    const { data: outs } = await sb.from('event_items').select('event_id').eq('status', 'out');
+    setEvents(evs || []);
+    setOutRows(outs || []);
+  }
+  useEffect(() => { load(); }, [winStart.getTime()]);
+
+  // Realtime — refetch on any event/event_items change inside the window
+  useEffect(() => {
+    const ch = sb.channel('calendar')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'events' },       load)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'event_items' }, load)
+      .subscribe();
+    return () => sb.removeChannel(ch);
+  }, [winStart.getTime()]);
+
+  if (events === null) return <div className="container"><div className="empty">Loading…</div></div>;
+
+  const dayMs = 24 * 3600 * 1000;
+  const today = new Date(); today.setHours(0,0,0,0);
+
+  // Build the day axis for the visible window
+  const days = [];
+  for (let i = 0; i < WINDOW_DAYS; i++) {
+    const d = new Date(winStart); d.setDate(winStart.getDate() + i);
+    days.push(d);
+  }
+
+  function offsetPct(date) {
+    const dt = new Date(date); dt.setHours(0,0,0,0);
+    const off = (dt.getTime() - winStart.getTime()) / dayMs;
+    return (off / WINDOW_DAYS) * 100;
+  }
+
+  // Group events by overdue / today / upcoming so the most-actionable rows sit on top
+  const outCountByEvent = {};
+  outRows.forEach(r => { outCountByEvent[r.event_id] = (outCountByEvent[r.event_id] || 0) + 1; });
+
+  const decorated = events.map(ev => {
+    const start = ev.event_start_date || ev.event_date;
+    const end   = ev.event_end_date   || ev.event_date || start;
+    if (!start) return null;
+    const startD = new Date(start + 'T00:00:00');
+    const endD   = new Date(end   + 'T00:00:00');
+    const itemsStillOut = outCountByEvent[ev.id] || 0;
+    const overdue = endD.getTime() < today.getTime() && itemsStillOut > 0;
+    return { ev, startD, endD, itemsStillOut, overdue };
+  }).filter(Boolean);
+
+  // Sort: overdue first, then chronological
+  decorated.sort((a, b) => {
+    if (a.overdue !== b.overdue) return a.overdue ? -1 : 1;
+    return a.startD.getTime() - b.startD.getTime();
+  });
+
+  function shift(days) {
+    setWinStart(prev => {
+      const d = new Date(prev); d.setDate(prev.getDate() + days); return d;
+    });
+  }
+  function jumpToToday() {
+    const d = new Date(); d.setHours(0,0,0,0); d.setDate(d.getDate() - 7);
+    setWinStart(d);
+  }
+
+  return (
+    <div className="container">
+      <div className="cal-toolbar">
+        <button className="btn sm" onClick={()=>shift(-14)}>← Earlier</button>
+        <button className="btn sm" onClick={jumpToToday}>Today</button>
+        <button className="btn sm" onClick={()=>shift(14)}>Later →</button>
+        <span className="cal-window-label">
+          {winStart.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })} — {winEnd.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}
+        </span>
+      </div>
+
+      {decorated.length === 0 ? (
+        <div className="empty">No deployments in this window.</div>
+      ) : (
+        <div className="cal-grid">
+          {/* Header row — date axis */}
+          <div className="cal-header">
+            {days.map((d, i) => {
+              const isToday = d.getTime() === today.getTime();
+              const isWeekend = d.getDay() === 0 || d.getDay() === 6;
+              return (
+                <div key={i} className={`cal-day-head${isToday ? ' today' : ''}${isWeekend ? ' weekend' : ''}`}>
+                  <div className="cal-day-num">{d.getDate()}</div>
+                  <div className="cal-day-name">{d.toLocaleDateString(undefined, { weekday: 'narrow' })}</div>
+                </div>
+              );
+            })}
+          </div>
+
+          {/* Rows — one per event. (Today is marked by the tinted header
+              column rather than a vertical line, so the day axis stays
+              alignment-free across the label column.) */}
+          {decorated.map(({ ev, startD, endD, overdue, itemsStillOut }) => {
+            // Clamp the bar to the visible window
+            const drawStart = startD < winStart ? winStart : startD;
+            const drawEnd   = endD   > winEnd   ? winEnd   : endD;
+            const left  = offsetPct(drawStart);
+            const widthPct = Math.max(
+              100 / WINDOW_DAYS,                                 // min 1 day
+              ((drawEnd.getTime() - drawStart.getTime()) / dayMs + 1) / WINDOW_DAYS * 100
+            );
+            const state = ev.workflow_state || 'approved';
+            const cls = overdue ? 'cal-bar-overdue' : `cal-bar-state-${state}`;
+            return (
+              <div className="cal-row" key={ev.id}>
+                <div className="cal-row-label" title={ev.name}>{ev.name}</div>
+                <div className="cal-row-track">
+                  <div className={`cal-bar ${cls}`}
+                    style={{left: `${left}%`, width: `${widthPct}%`}}
+                    onClick={()=>onOpenDeployment(ev.id)}
+                    title={`${ev.name} · ${state}${overdue ? ' · OVERDUE' : ''}`}>
+                    <span className="cal-bar-text">
+                      {overdue && <>⚠ </>}
+                      {state}{itemsStillOut > 0 && state !== 'closed' && <> · {itemsStillOut} out</>}
+                    </span>
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {/* Legend */}
+      <div className="cal-legend">
+        <span className="cal-legend-swatch cal-bar-state-draft"></span><span className="cal-legend-label">Draft</span>
+        <span className="cal-legend-swatch cal-bar-state-requested"></span><span className="cal-legend-label">Requested</span>
+        <span className="cal-legend-swatch cal-bar-state-approved"></span><span className="cal-legend-label">Approved</span>
+        <span className="cal-legend-swatch cal-bar-state-shipped"></span><span className="cal-legend-label">Shipped</span>
+        <span className="cal-legend-swatch cal-bar-state-arrived"></span><span className="cal-legend-label">On site</span>
+        <span className="cal-legend-swatch cal-bar-state-returning"></span><span className="cal-legend-label">Returning</span>
+        <span className="cal-legend-swatch cal-bar-state-closed"></span><span className="cal-legend-label">Closed</span>
+        <span className="cal-legend-swatch cal-bar-overdue"></span><span className="cal-legend-label">Overdue</span>
+      </div>
+    </div>
+  );
+}
+
 // ---------- events tab ----------
 function EventsTab({ admin, openEventId, onOpened }) {
   const [events, setEvents]     = useState([]);
@@ -4576,7 +4748,7 @@ function App() {
 
       {/* tabs */}
       <div className="tabs">
-        {[['dashboard','Dashboard'],['items','Items'],['events','Deployments']].map(([key,label]) => (
+        {[['dashboard','Dashboard'],['items','Items'],['events','Deployments'],['calendar','Calendar']].map(([key,label]) => (
           <button key={key} onClick={()=>setTab(key)} className={tab===key?'active':''}>
             {label}
           </button>
@@ -4586,6 +4758,7 @@ function App() {
       {tab === 'dashboard' && <DashboardTab admin={admin} onGoTo={(t, id) => { setTab(t); if (t === 'events') setOpenEventId(id); if (t === 'items') setOpenItemId(id); }} />}
       {tab === 'items'     && <ItemsTab  admin={admin} openItemId={openItemId}  onOpened={()=>setOpenItemId(null)} />}
       {tab === 'events'    && <EventsTab admin={admin} openEventId={openEventId} onOpened={()=>setOpenEventId(null)} />}
+      {tab === 'calendar'  && <CalendarTab onOpenDeployment={(id)=>{ setTab('events'); setOpenEventId(id); }} />}
 
       {loginOpen && <AdminLoginModal onLogin={handleLogin} onClose={()=>setLoginOpen(false)} />}
       {manageOpen && isMaster && (
