@@ -1427,3 +1427,116 @@ h1, h2, h3 {
 /* CSV preview — drop the all-caps */
 .csv-preview th { letter-spacing: 0; font-weight: 600; }
 
+/* ─────────────────────────────────────────────────────────────────────────────
+   Sortly skin — phase 2: photo-grid tiles for the master Items list.
+   Only applies to .items.items-grid; the deployment view's .items still uses
+   the row-style .item card (event-context data is more important there than
+   the photo).
+   ───────────────────────────────────────────────────────────────────────────── */
+.items.items-grid {
+  display: grid;
+  gap: 14px;
+  grid-template-columns: repeat(2, 1fr);
+}
+@media (min-width: 600px)  { .items.items-grid { grid-template-columns: repeat(3, 1fr); } }
+@media (min-width: 900px)  { .items.items-grid { grid-template-columns: repeat(4, 1fr); } }
+@media (min-width: 1280px) { .items.items-grid { grid-template-columns: repeat(5, 1fr); } }
+
+.item-tile {
+  display: flex; flex-direction: column;
+  background: var(--surface-1);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  overflow: hidden;
+  cursor: pointer;
+  transition: border-color 0.15s, transform 0.15s, background 0.15s;
+}
+.item-tile:hover  { border-color: var(--border-strong); }
+.item-tile:active { transform: scale(0.985); transition: transform 60ms; }
+
+/* Photo block — square, photo (or letter fallback) flush to top edges */
+.item-tile-photo {
+  position: relative;
+  aspect-ratio: 1 / 1;
+  background: var(--surface-2);
+  overflow: hidden;
+}
+.item-tile-photo img {
+  width: 100%; height: 100%; object-fit: cover; display: block;
+  transition: transform 0.4s ease;
+}
+.item-tile:hover .item-tile-photo img { transform: scale(1.04); }
+
+/* Letter fallback when no photo — big initial centered, calm bg */
+.item-tile-photo-fallback {
+  width: 100%; height: 100%;
+  display: flex; align-items: center; justify-content: center;
+  background: linear-gradient(140deg, #1f1f1f 0%, #161616 100%);
+  color: rgba(255, 255, 255, 0.18);
+  font-family: 'Manrope', sans-serif;
+  font-size: 56px; font-weight: 800;
+  letter-spacing: 0;
+  user-select: none;
+}
+
+/* Status overlay pill — sits in the top-right of the photo */
+.item-tile-overlay {
+  position: absolute; top: 8px; right: 8px;
+  display: inline-flex; align-items: center;
+  padding: 3px 10px;
+  border-radius: 999px;
+  font-family: 'Manrope', sans-serif;
+  font-size: 10px; font-weight: 700;
+  letter-spacing: 0;
+  background: rgba(0, 0, 0, 0.72);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+  border: 1px solid transparent;
+}
+.item-tile-overlay.status-out { color: var(--accent-out); border-color: rgba(212, 138, 52, 0.6); }
+.item-tile-overlay-retired   { color: var(--text-mute); border-color: var(--border-strong); }
+
+/* Body — name + meta below the photo */
+.item-tile-body {
+  display: flex; flex-direction: column; gap: 4px;
+  padding: 10px 12px 12px 12px;
+  min-width: 0;
+}
+.item-tile-name {
+  font-family: 'Manrope', sans-serif;
+  font-size: 14px; font-weight: 700;
+  color: var(--text);
+  line-height: 1.25;
+  /* allow up to two lines, then ellipsis */
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  word-break: break-word;
+}
+.item-tile-meta {
+  font-family: 'Manrope', sans-serif;
+  font-size: 11px; font-weight: 500;
+  color: var(--text-mute);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.item-tile-out-line {
+  font-size: 11px; color: var(--accent-out);
+  margin-top: 2px;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+
+/* Condition badge inside the body — keep small, sits under the meta */
+.item-tile .badge {
+  align-self: flex-start;
+  margin-top: 4px;
+  font-size: 10px;
+}
+
+/* State modifiers — soften the photo when retired, accent border when out */
+.item-tile-retired .item-tile-photo,
+.item-tile-retired .item-tile-photo-fallback { opacity: 0.55; }
+.item-tile-retired .item-tile-name           { text-decoration: line-through; color: var(--text-mute); }
+.item-tile-out                                { border-color: rgba(212, 138, 52, 0.45); }
+.item-tile-attention                          { border-color: rgba(212, 165, 52, 0.4); }
+

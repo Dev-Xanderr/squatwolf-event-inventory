@@ -2260,6 +2260,7 @@ function EventDetail({ event, admin, onBack }) {
 function ItemsTab({ admin, openItemId, onOpened }) {
   const [items, setItems]       = useState([]);
   const [outMap, setOutMap]     = useState({}); // item_id → event name for checked-out items
+  const [thumbs, setThumbs]     = useState({}); // item_id → first photo URL (master-level only)
   const [query, setQuery]       = useState('');
   const [catFilter, setCat]     = useState('all');
   const [condFilter, setCond]   = useState('all');
@@ -2296,6 +2297,17 @@ function ItemsTab({ admin, openItemId, onOpened }) {
         const m = {};
         (data||[]).forEach(r => { m[r.item_id] = r.events?.name || 'Unknown'; });
         setOutMap(m);
+      });
+    // first master-level photo per item, used as the card thumbnail.
+    // Only image attachments (skip videos), only event_item_id IS NULL (master).
+    sb.from('attachments').select('item_id, url, mime_type, uploaded_at')
+      .is('event_item_id', null)
+      .like('mime_type', 'image/%')
+      .order('uploaded_at', { ascending: true })
+      .then(({ data }) => {
+        const t = {};
+        (data||[]).forEach(a => { if (!t[a.item_id]) t[a.item_id] = a.url; });
+        setThumbs(t);
       });
   }, []);
 
@@ -2384,28 +2396,42 @@ function ItemsTab({ admin, openItemId, onOpened }) {
             : 'No items match your filters.'}
         </div>
       ) : (
-        <div className="items">
-          {filtered.map(it => (
-            <div className={`item clickable${outMap[it.id] ? ' item-out' : ''}${it.condition === 'retired' ? ' item-retired' : ''}${['damaged','needs_repair','needs_cleaning'].includes(it.condition) ? ' item-attention' : ''}`}
-              key={it.id} onClick={()=>setViewing(it)}>
-              <div className="row">
-                <div className="name">{it.name}</div>
-                <div style={{display:'flex',gap:5,alignItems:'center',flexShrink:0}}>
-                  <span className={`badge ${outMap[it.id] ? 'status-out' : 'status-stored'}`}>
-                    {outMap[it.id] ? 'Out' : 'Stored'}
-                  </span>
-                  <span className={`badge ${it.condition}`}>{CLABEL[it.condition]}</span>
+        <div className="items items-grid">
+          {filtered.map(it => {
+            const isOut       = !!outMap[it.id];
+            const isRetired   = it.condition === 'retired';
+            const needsAttn   = ['damaged','needs_repair','needs_cleaning'].includes(it.condition);
+            const tileCls     = ['item-tile', 'clickable',
+              isOut     && 'item-tile-out',
+              isRetired && 'item-tile-retired',
+              needsAttn && 'item-tile-attention',
+            ].filter(Boolean).join(' ');
+            const initial = (it.category || it.name || '?').trim().charAt(0).toUpperCase();
+            return (
+              <div className={tileCls} key={it.id} onClick={()=>setViewing(it)}>
+                <div className="item-tile-photo">
+                  {thumbs[it.id]
+                    ? <img src={thumbs[it.id]} alt="" loading="lazy" />
+                    : <div className="item-tile-photo-fallback" data-initial={initial}>{initial}</div>}
+                  {isOut && <span className="item-tile-overlay status-out">Out</span>}
+                  {isRetired && <span className="item-tile-overlay item-tile-overlay-retired">Retired</span>}
+                </div>
+                <div className="item-tile-body">
+                  <div className="item-tile-name">{it.name}</div>
+                  <div className="item-tile-meta">
+                    {it.category || 'Uncategorized'}
+                    {it.storage_location && <> · {it.storage_location}</>}
+                  </div>
+                  {it.condition !== 'good' && it.condition !== 'retired' && (
+                    <span className={`badge ${it.condition}`}>{CLABEL[it.condition]}</span>
+                  )}
+                  {isOut && (
+                    <div className="item-tile-out-line">In use for {outMap[it.id]}</div>
+                  )}
                 </div>
               </div>
-              <div className="fields">
-                <span className="k">Category</span><span className="v">{it.category||'—'}</span>
-                <span className="k">Stored at</span><span className="v">{it.storage_location||'—'}</span>
-                {outMap[it.id] && <><span className="k">In use for</span><span className="v" style={{color:'#d48a34'}}>{outMap[it.id]}</span></>}
-                {it.notes && <><span className="k">Notes</span><span className="v">{it.notes}</span></>}
-              </div>
-              <div className="meta">Updated by {it.updated_by||'—'} · {fmtTime(it.updated_at)}</div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
 
