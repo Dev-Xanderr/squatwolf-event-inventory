@@ -2500,3 +2500,142 @@ h1, h2, h3 {
   .dash-row-action { min-height: 44px; padding: 8px 14px; }
 }
 
+/* ─────────────────────────────────────────────────────────────────────────────
+   Mobile pass — focused on the surfaces UX-polish 1-3 added or that started
+   feeling cramped after recent feature work. Targets phone widths (≤640px)
+   with a tighter pass at ≤420px for narrow phones.
+   ───────────────────────────────────────────────────────────────────────────── */
+
+/* TOPBAR — Scan QR / Stocktake / Team / Sign out can crowd at narrow widths.
+   Abbreviate labels and shrink the brand so the row stays one line. */
+@media (max-width: 640px) {
+  .topbar { gap: 6px; padding: 8px 10px; }
+  .topbar .brand { font-size: 13px; letter-spacing: 0.10em; }
+  .topbar-mode { gap: 4px; }
+  .topbar-mode .btn.sm { padding: 6px 8px; font-size: 11px; }
+}
+@media (max-width: 480px) {
+  /* Hide the role name (e.g. "· Alex") inside the role pill so the right
+     side of the topbar fits a 360px screen. Truncate the pill itself. */
+  .role-name { display: none !important; }
+  .role-pill { font-size: 10px; padding: 3px 8px; }
+  /* Tighter button padding — labels stay visible. */
+  .topbar-mode .btn.sm { padding: 6px 7px; font-size: 10px; }
+  .topbar-mode .team-btn-badge { min-width: 16px; height: 16px; font-size: 9px; }
+}
+
+/* DEPLOYMENT BACK-BAR — already wraps at 600px. Tighten button sizes on phone
+   so wrapping doesn't add three rows of buttons. */
+@media (max-width: 540px) {
+  .back-bar { gap: 6px; padding: 8px 10px; }
+  .back-bar .btn.sm { padding: 6px 9px; font-size: 11px; }
+  .back-bar .ev-name { font-size: 14px; }
+  .back-bar .ev-sub  { font-size: 11px; }
+  .back-bar .dept-chips-readonly { display: none; }  /* save vertical space; chips stay visible inside body */
+}
+
+/* CALENDAR — 28 days × 360px screen = ~13px columns. Headers become illegible
+   and bars are dot-sized. Make the whole grid horizontally scrollable on
+   phones so each day gets a useable width. */
+@media (max-width: 720px) {
+  .cal-grid { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  .cal-grid > .cal-header,
+  .cal-grid > .cal-row {
+    min-width: 720px;  /* ensures each of 28 days is at least ~24px wide */
+  }
+  .cal-toolbar { gap: 6px; }
+  .cal-toolbar .btn.sm { padding: 6px 9px; font-size: 11px; }
+  .cal-window-label { font-size: 11px; flex: 1 1 100%; margin-left: 0; margin-top: 2px; }
+  .cal-view-toggle button { padding: 6px 10px; font-size: 10px; }
+}
+@media (max-width: 540px) {
+  /* Bring the row label INTO the scroll area so it scrolls with the bars —
+     the previous "label stacked above" rule made the date axis lose its
+     anchor when the user scrolled horizontally. */
+  .cal-row { flex-direction: row; min-height: 44px; }
+  .cal-row-label {
+    position: sticky; left: 0;
+    width: 120px; flex: 0 0 120px;
+    border-right: 1px solid var(--border);
+    border-bottom: 0;
+    z-index: 2;
+    font-size: 11px;
+    padding: 6px 10px;
+  }
+  .cal-header { padding-left: 120px; }
+  .cal-row-track { flex: 1; min-height: 44px; }
+}
+
+/* APPROVAL ACTION BAR — already has a 540px stack rule. Tighten copy size. */
+@media (max-width: 540px) {
+  .approval-bar { padding: 10px 12px; gap: 8px; }
+  .approval-bar-head { font-size: 12px; }
+  .approval-bar-sub  { font-size: 10px; }
+}
+
+/* WELCOME / SEND-BACK BANNERS — full-width body, tighter padding. */
+@media (max-width: 540px) {
+  .viewer-welcome  { padding: 8px 12px; }
+  .viewer-welcome-body { font-size: 12px; }
+  .send-back-banner { padding: 8px 12px; gap: 8px; }
+  .send-back-text   { font-size: 13px; }
+  .send-back-meta   { font-size: 10px; }
+}
+
+/* DEPLOYMENT FORM — collapse 2-col grids of date / logistics inputs to
+   1-col on narrow phones so datetime-local pickers don't overflow. */
+@media (max-width: 540px) {
+  .modal form > div[style*="grid-template-columns"] {
+    grid-template-columns: 1fr !important;
+  }
+}
+
+/* MODALS — at narrow widths, take more of the screen and lose the rounded
+   corners on edges that touch the viewport. */
+@media (max-width: 540px) {
+  .modal {
+    max-width: 100% !important;
+    margin: 0 8px;
+    padding: 14px 16px;
+  }
+  .modal h2 { font-size: 18px; }
+  .modal .actions { flex-wrap: wrap; gap: 6px; }
+  .modal .actions .btn { flex: 1 1 auto; }
+}
+
+/* SIDEBAR CARDS at phone widths — already stack below 1100px. Just tighten
+   their internal padding and font-sizes so they don't waste space. */
+@media (max-width: 540px) {
+  .sidebar-card { padding: 10px 12px; }
+  .workflow-now { padding: 6px 10px; }
+  .workflow-now-stage { font-size: 14px; }
+  .workflow-step-label { font-size: 12px; }
+  .workflow-step-sub, .workflow-step-meta { font-size: 10px; }
+  .logistics-row { font-size: 11px; }
+  .logistics-key { width: 60px; font-size: 9px; }
+  .contact-name { font-size: 12px; }
+  .contact-role { font-size: 10px; }
+}
+
+/* ⋯ MORE MENU — anchor to the right edge of the viewport on phones so
+   the popup doesn't extend off-screen. */
+@media (max-width: 540px) {
+  .more-menu-pop { right: 0; min-width: 200px; }
+}
+
+/* ITEMS GRID — already 2-col at small widths. Tighten the tile body. */
+@media (max-width: 540px) {
+  .item-tile-body { padding: 8px 10px 10px; }
+  .item-tile-name { font-size: 13px; }
+  .item-tile-meta { font-size: 10px; }
+}
+
+/* DASHBOARD UP-NEXT CARDS — date block + thumb strip can crowd on phone */
+@media (max-width: 540px) {
+  .upcoming-card { gap: 10px; padding: 10px 12px; }
+  .upcoming-date { width: 48px; padding: 6px 4px; }
+  .upcoming-date-day { font-size: 20px; }
+  .upcoming-name { font-size: 14px; }
+  .upcoming-strip .item-thumb-40 { width: 30px; height: 30px; }
+}
+
