@@ -45,6 +45,7 @@ const CLABEL = {
   retired: 'Retired'
 };
 const CATEGORIES = ['Audio', 'Signage', 'Furniture', 'Equipment', 'Comms', 'Other'];
+const DEPARTMENTS = ['Finance', 'Human Resources', 'Events and Community', 'Social Media Team', 'Logistics', 'Expansion', 'Design Team', 'Retail Team', 'Founders Content Creator'];
 function fmtDate(d) {
   if (!d) return '—';
   return new Date(d).toLocaleDateString(undefined, {
@@ -2387,28 +2388,42 @@ function ItemDetailModal({
 }
 
 // ---------- event form ----------
+// Dual-mode: pass `event` for edit, omit for create.
 function EventFormModal({
   admin,
+  event,
   onClose,
   onSaved
 }) {
-  const [name, setName] = useState('');
-  const [date, setDate] = useState('');
-  const [location, setLoc] = useState('');
+  const isEdit = !!event;
+  const [name, setName] = useState(event?.name || '');
+  const [date, setDate] = useState(event?.event_date || '');
+  const [location, setLoc] = useState(event?.location || '');
+  const [depts, setDepts] = useState(() => new Set(event?.departments || []));
   const [err, setErr] = useState('');
   const [saving, setSaving] = useState(false);
+  function toggleDept(d) {
+    setDepts(prev => {
+      const n = new Set(prev);
+      n.has(d) ? n.delete(d) : n.add(d);
+      return n;
+    });
+  }
   async function save(e) {
     e.preventDefault();
     if (!name.trim()) return setErr('Event name required');
     setSaving(true);
+    const payload = {
+      name: name.trim(),
+      event_date: date || null,
+      location: location.trim(),
+      departments: Array.from(depts)
+    };
+    const q = isEdit ? sb.from('events').update(payload).eq('id', event.id).select().single() : sb.from('events').insert(payload).select().single();
     const {
       data,
       error
-    } = await sb.from('events').insert({
-      name: name.trim(),
-      event_date: date || null,
-      location: location.trim()
-    }).select().single();
+    } = await q;
     if (error) {
       setErr(friendlyError(error));
       setSaving(false);
@@ -2423,11 +2438,11 @@ function EventFormModal({
   }, /*#__PURE__*/React.createElement("form", {
     className: "modal",
     style: {
-      maxWidth: 400
+      maxWidth: 480
     },
     onClick: e => e.stopPropagation(),
     onSubmit: save
-  }, /*#__PURE__*/React.createElement("h2", null, "New Deployment"), /*#__PURE__*/React.createElement("div", {
+  }, /*#__PURE__*/React.createElement("h2", null, isEdit ? 'Edit deployment' : 'New deployment'), /*#__PURE__*/React.createElement("div", {
     className: "field"
   }, /*#__PURE__*/React.createElement("label", null, "Event name"), /*#__PURE__*/React.createElement("input", {
     value: name,
@@ -2447,6 +2462,15 @@ function EventFormModal({
     onChange: e => setLoc(e.target.value),
     placeholder: "e.g. Al Wasl Sports Club"
   })), /*#__PURE__*/React.createElement("div", {
+    className: "field"
+  }, /*#__PURE__*/React.createElement("label", null, "Departments involved"), /*#__PURE__*/React.createElement("div", {
+    className: "dept-chips"
+  }, DEPARTMENTS.map(d => /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    key: d,
+    className: `dept-chip${depts.has(d) ? ' on' : ''}`,
+    onClick: () => toggleDept(d)
+  }, d)))), /*#__PURE__*/React.createElement("div", {
     className: "err"
   }, err), /*#__PURE__*/React.createElement("div", {
     className: "actions"
@@ -2458,7 +2482,7 @@ function EventFormModal({
     type: "submit",
     className: "btn primary",
     disabled: saving
-  }, saving ? 'Creating…' : 'Create event'))));
+  }, saving ? isEdit ? 'Saving…' : 'Creating…' : isEdit ? 'Save changes' : 'Create event'))));
 }
 
 // ---------- assign items to event ----------
@@ -3429,6 +3453,10 @@ function EventDetail({
   const [scanLog, setScanLog] = useState([]); // continuous mode: [{ id, kind, label, canUndo }, ...]
   const [bulkOpen, setBulkOpen] = useState(false);
   const [manifestOpen, setManifest] = useState(false);
+  const [editOpen, setEditOpen] = useState(false);
+  // Local copy of the event so edits reflect immediately without round-tripping
+  // through EventsTab's list. (Parent list refreshes on next tab visit.)
+  const [currentEvent, setCurrentEvent] = useState(event);
   async function load() {
     const {
       data: eis
@@ -3646,9 +3674,14 @@ function EventDetail({
     }
   }, /*#__PURE__*/React.createElement("div", {
     className: "ev-name"
-  }, event.name), /*#__PURE__*/React.createElement("div", {
+  }, currentEvent.name), /*#__PURE__*/React.createElement("div", {
     className: "ev-sub"
-  }, fmtDate(event.event_date), event.location ? ' · ' + event.location : '')), /*#__PURE__*/React.createElement("button", {
+  }, fmtDate(currentEvent.event_date), currentEvent.location ? ' · ' + currentEvent.location : ''), currentEvent.departments && currentEvent.departments.length > 0 && /*#__PURE__*/React.createElement("div", {
+    className: "dept-chips dept-chips-readonly"
+  }, currentEvent.departments.map(d => /*#__PURE__*/React.createElement("span", {
+    key: d,
+    className: "dept-chip on"
+  }, d)))), /*#__PURE__*/React.createElement("button", {
     className: "btn sm",
     onClick: () => setScanOpen(true)
   }, "\u229F Scan"), eventItems.length > 0 && /*#__PURE__*/React.createElement("button", {
@@ -3660,6 +3693,10 @@ function EventDetail({
     onClick: () => setBulkOpen(true),
     title: "Return all out items"
   }, "\u21A9 Return all"), admin && /*#__PURE__*/React.createElement("button", {
+    className: "btn sm",
+    onClick: () => setEditOpen(true),
+    title: "Edit deployment"
+  }, "\u270E Edit"), admin && /*#__PURE__*/React.createElement("button", {
     className: "btn sm primary",
     onClick: () => setAssignOpen(true)
   }, "+ Assign"), !admin && /*#__PURE__*/React.createElement(LoginPrompt, {
@@ -3865,6 +3902,11 @@ function EventDetail({
     eventItems: eventItems,
     items: items,
     onClose: () => setManifest(false)
+  }), editOpen && /*#__PURE__*/React.createElement(EventFormModal, {
+    admin: admin,
+    event: currentEvent,
+    onClose: () => setEditOpen(false),
+    onSaved: updated => setCurrentEvent(updated)
   }));
 }
 
@@ -4132,7 +4174,7 @@ function DashboardTab({
       // events from today onward, with their assigned items nested for the
       // thumb strip + count. limit 10 — anything further out belongs in the
       // Deployments tab, not the dashboard.
-      sb.from('events').select('id, name, event_date, location, event_items(item_id, status, packed_at)').gte('event_date', todayIso).order('event_date', {
+      sb.from('events').select('id, name, event_date, location, departments, event_items(item_id, status, packed_at)').gte('event_date', todayIso).order('event_date', {
         ascending: true
       }).limit(10)]);
       const errs = [itemsRes.error, outRes.error, upRes.error].filter(Boolean);
@@ -4417,7 +4459,12 @@ function UpcomingCard({
     className: "upcoming-rel"
   }, relLabel)), /*#__PURE__*/React.createElement("div", {
     className: "upcoming-sub"
-  }, ev.location || 'No location set', ' · ', itemCount === 0 ? 'No items assigned yet' : `${itemCount} item${itemCount === 1 ? '' : 's'}`), onDeploy.length > 0 && /*#__PURE__*/React.createElement("div", {
+  }, ev.location || 'No location set', ' · ', itemCount === 0 ? 'No items assigned yet' : `${itemCount} item${itemCount === 1 ? '' : 's'}`), ev.departments && ev.departments.length > 0 && /*#__PURE__*/React.createElement("div", {
+    className: "dept-chips dept-chips-readonly dept-chips-small"
+  }, ev.departments.map(d => /*#__PURE__*/React.createElement("span", {
+    key: d,
+    className: "dept-chip on"
+  }, d))), onDeploy.length > 0 && /*#__PURE__*/React.createElement("div", {
     className: `pack-progress${allPacked ? ' done' : ''}`,
     title: `${packed} of ${onDeploy.length} packed`
   }, /*#__PURE__*/React.createElement("div", {

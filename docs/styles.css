@@ -1655,6 +1655,36 @@ h1, h2, h3 {
 .stat-box.alert.info { border-bottom-color: var(--accent-info); }
 .stat-box.alert.info .stat-value { color: var(--accent-info); }
 
+/* Department chips — multi-select on the deployment form, read-only display
+   on the deployment header and dashboard cards. Same visual language. */
+.dept-chips {
+  display: flex; flex-wrap: wrap; gap: 6px;
+  margin-top: 6px;
+}
+.dept-chip {
+  display: inline-flex; align-items: center;
+  padding: 5px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--border, #2a2a2a);
+  background: transparent;
+  color: var(--text-mute, #9a9a9a);
+  font-family: 'Manrope', sans-serif;
+  font-size: 11px; font-weight: 600;
+  letter-spacing: 0.02em;
+  cursor: pointer;
+  user-select: none;
+  transition: border-color 0.12s, background 0.12s, color 0.12s;
+}
+.dept-chip:hover { border-color: var(--border-strong, #3a3a3a); color: var(--text); }
+.dept-chip.on {
+  background: var(--accent-info-bg);
+  border-color: var(--accent-info-bd);
+  color: var(--accent-info);
+}
+.dept-chips-readonly .dept-chip { cursor: default; }
+.dept-chips-readonly .dept-chip:hover { border-color: var(--accent-info-bd); color: var(--accent-info); }
+.dept-chips-small .dept-chip { padding: 3px 8px; font-size: 10px; }
+
 /* Pack-progress bar inside the "Up next" card. Info-tone while packing,
    green tone once everything is packed and ready to ship. */
 .pack-progress {

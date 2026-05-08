@@ -27,6 +27,17 @@ const CONDITIONS = [
 ];
 const CLABEL = { good: 'Good', needs_cleaning: 'Needs Cleaning', needs_repair: 'Needs Repair', damaged: 'Damaged', retired: 'Retired' };
 const CATEGORIES = ['Audio', 'Signage', 'Furniture', 'Equipment', 'Comms', 'Other'];
+const DEPARTMENTS = [
+  'Finance',
+  'Human Resources',
+  'Events and Community',
+  'Social Media Team',
+  'Logistics',
+  'Expansion',
+  'Design Team',
+  'Retail Team',
+  'Founders Content Creator',
+];
 
 function fmtDate(d) {
   if (!d) return '—';
@@ -1523,28 +1534,46 @@ function ItemDetailModal({ item, admin, onClose, onEdit }) {
 }
 
 // ---------- event form ----------
-function EventFormModal({ admin, onClose, onSaved }) {
-  const [name, setName]     = useState('');
-  const [date, setDate]     = useState('');
-  const [location, setLoc]  = useState('');
-  const [err, setErr]       = useState('');
-  const [saving, setSaving] = useState(false);
+// Dual-mode: pass `event` for edit, omit for create.
+function EventFormModal({ admin, event, onClose, onSaved }) {
+  const isEdit = !!event;
+  const [name, setName]       = useState(event?.name || '');
+  const [date, setDate]       = useState(event?.event_date || '');
+  const [location, setLoc]    = useState(event?.location || '');
+  const [depts, setDepts]     = useState(() => new Set(event?.departments || []));
+  const [err, setErr]         = useState('');
+  const [saving, setSaving]   = useState(false);
+
+  function toggleDept(d) {
+    setDepts(prev => {
+      const n = new Set(prev);
+      n.has(d) ? n.delete(d) : n.add(d);
+      return n;
+    });
+  }
 
   async function save(e) {
     e.preventDefault();
     if (!name.trim()) return setErr('Event name required');
     setSaving(true);
-    const { data, error } = await sb.from('events').insert({
-      name: name.trim(), event_date: date || null, location: location.trim(),
-    }).select().single();
+    const payload = {
+      name: name.trim(),
+      event_date: date || null,
+      location: location.trim(),
+      departments: Array.from(depts),
+    };
+    const q = isEdit
+      ? sb.from('events').update(payload).eq('id', event.id).select().single()
+      : sb.from('events').insert(payload).select().single();
+    const { data, error } = await q;
     if (error) { setErr(friendlyError(error)); setSaving(false); return; }
     onSaved(data); onClose();
   }
 
   return (
     <div className="backdrop" onClick={onClose}>
-      <form className="modal" style={{maxWidth:400}} onClick={e=>e.stopPropagation()} onSubmit={save}>
-        <h2>New Deployment</h2>
+      <form className="modal" style={{maxWidth:480}} onClick={e=>e.stopPropagation()} onSubmit={save}>
+        <h2>{isEdit ? 'Edit deployment' : 'New deployment'}</h2>
         <div className="field"><label>Event name</label>
           <input value={name} onChange={e=>setName(e.target.value)} placeholder="e.g. Al Wasl Volleyball Tournament" autoFocus />
         </div>
@@ -1554,10 +1583,23 @@ function EventFormModal({ admin, onClose, onSaved }) {
         <div className="field"><label>Location / venue</label>
           <input value={location} onChange={e=>setLoc(e.target.value)} placeholder="e.g. Al Wasl Sports Club" />
         </div>
+        <div className="field"><label>Departments involved</label>
+          <div className="dept-chips">
+            {DEPARTMENTS.map(d => (
+              <button type="button" key={d}
+                className={`dept-chip${depts.has(d) ? ' on' : ''}`}
+                onClick={()=>toggleDept(d)}>
+                {d}
+              </button>
+            ))}
+          </div>
+        </div>
         <div className="err">{err}</div>
         <div className="actions">
           <button type="button" className="btn ghost" onClick={onClose}>Cancel</button>
-          <button type="submit" className="btn primary" disabled={saving}>{saving?'Creating…':'Create event'}</button>
+          <button type="submit" className="btn primary" disabled={saving}>
+            {saving ? (isEdit ? 'Saving…' : 'Creating…') : (isEdit ? 'Save changes' : 'Create event')}
+          </button>
         </div>
       </form>
     </div>
@@ -2182,6 +2224,10 @@ function EventDetail({ event, admin, onBack }) {
   const [scanLog, setScanLog]       = useState([]);    // continuous mode: [{ id, kind, label, canUndo }, ...]
   const [bulkOpen, setBulkOpen]     = useState(false);
   const [manifestOpen, setManifest] = useState(false);
+  const [editOpen, setEditOpen]     = useState(false);
+  // Local copy of the event so edits reflect immediately without round-tripping
+  // through EventsTab's list. (Parent list refreshes on next tab visit.)
+  const [currentEvent, setCurrentEvent] = useState(event);
 
   async function load() {
     const { data: eis } = await sb.from('event_items').select('*').eq('event_id', event.id).order('assigned_at');
@@ -2321,8 +2367,15 @@ function EventDetail({ event, admin, onBack }) {
       <div className="back-bar">
         <button className="btn sm ghost" onClick={onBack}>← Back</button>
         <div style={{flex:1,overflow:'hidden'}}>
-          <div className="ev-name">{event.name}</div>
-          <div className="ev-sub">{fmtDate(event.event_date)}{event.location ? ' · '+event.location : ''}</div>
+          <div className="ev-name">{currentEvent.name}</div>
+          <div className="ev-sub">{fmtDate(currentEvent.event_date)}{currentEvent.location ? ' · '+currentEvent.location : ''}</div>
+          {currentEvent.departments && currentEvent.departments.length > 0 && (
+            <div className="dept-chips dept-chips-readonly">
+              {currentEvent.departments.map(d => (
+                <span key={d} className="dept-chip on">{d}</span>
+              ))}
+            </div>
+          )}
         </div>
         <button className="btn sm" onClick={()=>setScanOpen(true)}>⊟ Scan</button>
         {eventItems.length > 0 && (
@@ -2331,6 +2384,7 @@ function EventDetail({ event, admin, onBack }) {
         {admin && outCount > 0 && (
           <button className="btn sm" onClick={()=>setBulkOpen(true)} title="Return all out items">↩ Return all</button>
         )}
+        {admin && <button className="btn sm" onClick={()=>setEditOpen(true)} title="Edit deployment">✎ Edit</button>}
         {admin && <button className="btn sm primary" onClick={()=>setAssignOpen(true)}>+ Assign</button>}
         {!admin && <LoginPrompt verb="manage" />}
       </div>
@@ -2466,6 +2520,11 @@ function EventDetail({ event, admin, onBack }) {
       {manifestOpen && (
         <ManifestView event={event} eventItems={eventItems} items={items}
           onClose={()=>setManifest(false)} />
+      )}
+      {editOpen && (
+        <EventFormModal admin={admin} event={currentEvent}
+          onClose={()=>setEditOpen(false)}
+          onSaved={(updated)=>setCurrentEvent(updated)} />
       )}
     </div>
   );
@@ -2687,7 +2746,7 @@ function DashboardTab({ admin, onGoTo }) {
         // thumb strip + count. limit 10 — anything further out belongs in the
         // Deployments tab, not the dashboard.
         sb.from('events')
-          .select('id, name, event_date, location, event_items(item_id, status, packed_at)')
+          .select('id, name, event_date, location, departments, event_items(item_id, status, packed_at)')
           .gte('event_date', todayIso)
           .order('event_date', { ascending: true })
           .limit(10),
@@ -2934,6 +2993,11 @@ function UpcomingCard({ ev, itemMap, thumbs, onOpen }) {
           {' · '}
           {itemCount === 0 ? 'No items assigned yet' : `${itemCount} item${itemCount === 1 ? '' : 's'}`}
         </div>
+        {ev.departments && ev.departments.length > 0 && (
+          <div className="dept-chips dept-chips-readonly dept-chips-small">
+            {ev.departments.map(d => <span key={d} className="dept-chip on">{d}</span>)}
+          </div>
+        )}
         {onDeploy.length > 0 && (
           <div className={`pack-progress${allPacked ? ' done' : ''}`} title={`${packed} of ${onDeploy.length} packed`}>
             <div className="pack-progress-bar"><div className="pack-progress-fill" style={{width: packPct + '%'}} /></div>
