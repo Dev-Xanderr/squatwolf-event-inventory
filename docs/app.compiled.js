@@ -2485,6 +2485,190 @@ function EventFormModal({
   }, saving ? isEdit ? 'Saving…' : 'Creating…' : isEdit ? 'Save changes' : 'Create event'))));
 }
 
+// ---------- duplicate deployment ----------
+// Clones an event + all its current assignments to a fresh deployment.
+// Items currently out at OTHER deployments are skipped — can't double-book.
+// Reset packed/returned flags so the new event starts clean.
+function DuplicateEventModal({
+  admin,
+  source,
+  sourceItems,
+  onClose,
+  onDuplicated
+}) {
+  const [name, setName] = useState((source.name || 'Deployment') + ' (copy)');
+  const [date, setDate] = useState('');
+  const [keepDepts, setKD] = useState(true);
+  const [keepLoc, setKL] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [err, setErr] = useState('');
+  const [skipped, setSkipped] = useState(0);
+  async function save(e) {
+    e.preventDefault();
+    if (!name.trim()) return setErr('Event name required');
+    setSaving(true);
+    try {
+      // 1. Create the new event
+      const {
+        data: newEv,
+        error: evErr
+      } = await sb.from('events').insert({
+        name: name.trim(),
+        event_date: date || null,
+        location: keepLoc ? source.location || '' : '',
+        departments: keepDepts ? source.departments || [] : []
+      }).select().single();
+      if (evErr) throw evErr;
+
+      // 2. Decide which source assignments can be carried over.
+      //    Skip items currently "out" at any deployment that isn't the source
+      //    (the source's own out items are fine — we're duplicating them).
+      const itemIds = sourceItems.map(ei => ei.item_id);
+      const {
+        data: outAtOthers
+      } = await sb.from('event_items').select('item_id, event_id').eq('status', 'out').in('item_id', itemIds);
+      const blocked = new Set((outAtOthers || []).filter(r => r.event_id !== source.id).map(r => r.item_id));
+
+      // Refresh master conditions so the new event reflects current state.
+      const {
+        data: masters
+      } = await sb.from('items').select('id, condition').in('id', itemIds);
+      const condBy = {};
+      (masters || []).forEach(m => {
+        condBy[m.id] = m.condition;
+      });
+      const now = new Date().toISOString();
+      const rows = sourceItems.filter(ei => !blocked.has(ei.item_id)).map(ei => ({
+        event_id: newEv.id,
+        item_id: ei.item_id,
+        status: 'out',
+        condition: condBy[ei.item_id] || ei.condition || 'good',
+        current_location: '',
+        assigned_by: admin.name,
+        assigned_at: now,
+        updated_at: now,
+        updated_by: admin.name
+      }));
+      let newRows = [];
+      if (rows.length > 0) {
+        const {
+          data,
+          error: insErr
+        } = await sb.from('event_items').insert(rows).select();
+        if (insErr) throw insErr;
+        newRows = data || [];
+      }
+
+      // History entries — one per duplicated assignment
+      if (newRows.length > 0) {
+        await sb.from('history').insert(newRows.map(r => ({
+          item_id: r.item_id,
+          event_item_id: r.id,
+          event_id: newEv.id,
+          action: 'assigned',
+          changes: {
+            note: `Assigned via duplicate of "${source.name}"`
+          },
+          changed_by: admin.name,
+          changed_at: now
+        })));
+      }
+      const skippedCount = sourceItems.length - rows.length;
+      if (skippedCount > 0) setSkipped(skippedCount);
+      onDuplicated(newEv);
+    } catch (e) {
+      setErr(friendlyError(e));
+      setSaving(false);
+    }
+  }
+  const itemCount = sourceItems.length;
+  return /*#__PURE__*/React.createElement("div", {
+    className: "backdrop",
+    onClick: onClose
+  }, /*#__PURE__*/React.createElement("form", {
+    className: "modal",
+    style: {
+      maxWidth: 440
+    },
+    onClick: e => e.stopPropagation(),
+    onSubmit: save
+  }, /*#__PURE__*/React.createElement("h2", null, "Duplicate deployment"), /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 12,
+      color: '#9a9a9a',
+      marginBottom: 10
+    }
+  }, "Cloning ", /*#__PURE__*/React.createElement("b", null, source.name), itemCount > 0 ? ` and its ${itemCount} item assignment${itemCount === 1 ? '' : 's'}` : '', "."), /*#__PURE__*/React.createElement("div", {
+    className: "field"
+  }, /*#__PURE__*/React.createElement("label", null, "New event name"), /*#__PURE__*/React.createElement("input", {
+    value: name,
+    onChange: e => setName(e.target.value),
+    autoFocus: true
+  })), /*#__PURE__*/React.createElement("div", {
+    className: "field"
+  }, /*#__PURE__*/React.createElement("label", null, "Event date (optional)"), /*#__PURE__*/React.createElement("input", {
+    type: "date",
+    value: date,
+    onChange: e => setDate(e.target.value)
+  })), /*#__PURE__*/React.createElement("div", {
+    className: "field",
+    style: {
+      display: 'flex',
+      flexDirection: 'column',
+      gap: 6
+    }
+  }, /*#__PURE__*/React.createElement("label", {
+    style: {
+      display: 'flex',
+      gap: 8,
+      alignItems: 'center',
+      cursor: 'pointer'
+    }
+  }, /*#__PURE__*/React.createElement("input", {
+    type: "checkbox",
+    checked: keepLoc,
+    onChange: e => setKL(e.target.checked)
+  }), /*#__PURE__*/React.createElement("span", null, "Copy location (", source.location || '—', ")")), /*#__PURE__*/React.createElement("label", {
+    style: {
+      display: 'flex',
+      gap: 8,
+      alignItems: 'center',
+      cursor: 'pointer'
+    }
+  }, /*#__PURE__*/React.createElement("input", {
+    type: "checkbox",
+    checked: keepDepts,
+    onChange: e => setKD(e.target.checked)
+  }), /*#__PURE__*/React.createElement("span", null, "Copy departments (", (source.departments || []).length, ")"))), /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 11,
+      color: '#7A7A7A',
+      marginTop: 6,
+      letterSpacing: '0.04em'
+    }
+  }, "Items currently out at other deployments will be skipped automatically. Pack / return flags are reset so the clone starts clean."), skipped > 0 && /*#__PURE__*/React.createElement("div", {
+    className: "err",
+    style: {
+      marginTop: 10,
+      background: '#2b2208',
+      borderColor: '#4a3a10',
+      color: '#d4a534'
+    }
+  }, skipped, " item", skipped === 1 ? '' : 's', " couldn't be duplicated \u2014 already out at other deployment", skipped === 1 ? '' : 's', "."), err && /*#__PURE__*/React.createElement("div", {
+    className: "err"
+  }, err), /*#__PURE__*/React.createElement("div", {
+    className: "actions"
+  }, /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    className: "btn ghost",
+    onClick: onClose
+  }, "Cancel"), /*#__PURE__*/React.createElement("button", {
+    type: "submit",
+    className: "btn primary",
+    disabled: saving
+  }, saving ? 'Duplicating…' : 'Duplicate'))));
+}
+
 // ---------- assign items to event ----------
 function AssignItemsModal({
   event,
@@ -3454,6 +3638,7 @@ function EventDetail({
   const [bulkOpen, setBulkOpen] = useState(false);
   const [manifestOpen, setManifest] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
+  const [dupOpen, setDupOpen] = useState(false);
   // Local copy of the event so edits reflect immediately without round-tripping
   // through EventsTab's list. (Parent list refreshes on next tab visit.)
   const [currentEvent, setCurrentEvent] = useState(event);
@@ -3696,7 +3881,11 @@ function EventDetail({
     className: "btn sm",
     onClick: () => setEditOpen(true),
     title: "Edit deployment"
-  }, "\u270E Edit"), admin && /*#__PURE__*/React.createElement("button", {
+  }, "\u270E Edit"), admin && eventItems.length > 0 && /*#__PURE__*/React.createElement("button", {
+    className: "btn sm",
+    onClick: () => setDupOpen(true),
+    title: "Duplicate deployment"
+  }, "\u2398 Duplicate"), admin && /*#__PURE__*/React.createElement("button", {
     className: "btn sm primary",
     onClick: () => setAssignOpen(true)
   }, "+ Assign"), !admin && /*#__PURE__*/React.createElement(LoginPrompt, {
@@ -3907,6 +4096,16 @@ function EventDetail({
     event: currentEvent,
     onClose: () => setEditOpen(false),
     onSaved: updated => setCurrentEvent(updated)
+  }), dupOpen && /*#__PURE__*/React.createElement(DuplicateEventModal, {
+    admin: admin,
+    source: currentEvent,
+    sourceItems: eventItems,
+    onClose: () => setDupOpen(false),
+    onDuplicated: newEv => {
+      setDupOpen(false);
+      onBack(); /* parent re-renders Events list */
+      toast(`Duplicated to "${newEv.name}"`, 'ok');
+    }
   }));
 }
 
