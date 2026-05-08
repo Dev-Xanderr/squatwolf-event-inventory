@@ -59,6 +59,21 @@ function fmtDate(d) {
   if (!d) return '—';
   return new Date(d).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
 }
+// Render an event's date range as one line: "Mar 5", "Mar 5–7", "Mar 5 – Apr 2".
+// Falls back to event_date if start/end aren't populated yet (pre-migration data).
+function fmtDateRange(ev) {
+  const start = ev?.event_start_date || ev?.event_date;
+  const end   = ev?.event_end_date   || ev?.event_date;
+  if (!start && !end) return '—';
+  if (!end || start === end) return fmtDate(start);
+  const sd = new Date(start), ed = new Date(end);
+  const sameMonth = sd.getMonth() === ed.getMonth() && sd.getFullYear() === ed.getFullYear();
+  if (sameMonth) {
+    const month = sd.toLocaleDateString(undefined, { month: 'short' });
+    return `${month} ${sd.getDate()}–${ed.getDate()}, ${ed.getFullYear()}`;
+  }
+  return `${fmtDate(start)} – ${fmtDate(end)}`;
+}
 function fmtTime(iso) {
   if (!iso) return '—';
   const d = new Date(iso), now = new Date();
@@ -1681,8 +1696,18 @@ function EventFormModal({ admin, event, onClose, onSaved }) {
   const isEdit = !!event;
   const [name, setName]       = useState(event?.name || '');
   const [date, setDate]       = useState(event?.event_date || '');
+  // New: explicit start/end so deployments can span days. Default end-date
+  // mirrors start so single-day events still feel like one input.
+  const [startDate, setStart] = useState(event?.event_start_date || event?.event_date || '');
+  const [endDate, setEnd]     = useState(event?.event_end_date   || event?.event_date || '');
+  const [loadInAt, setLI]     = useState(event?.load_in_at  ? event.load_in_at.slice(0, 16) : '');
+  const [loadOutAt, setLO]    = useState(event?.load_out_at ? event.load_out_at.slice(0, 16) : '');
   const [location, setLoc]    = useState(event?.location || '');
+  const [accessNotes, setAN]  = useState(event?.venue_access_notes || '');
+  const [driver, setDriver]   = useState(event?.driver_name || '');
+  const [vehicle, setVehicle] = useState(event?.vehicle_plate || '');
   const [depts, setDepts]     = useState(() => new Set(event?.departments || []));
+  const [showLogistics, setShowLog] = useState(!!(event?.load_in_at || event?.driver_name || event?.venue_access_notes));
   const [err, setErr]         = useState('');
   const [saving, setSaving]   = useState(false);
 
@@ -1698,18 +1723,30 @@ function EventFormModal({ admin, event, onClose, onSaved }) {
     e.preventDefault();
     if (!name.trim()) return setErr('Event name required');
     setSaving(true);
+    // Keep the legacy single event_date in sync with start so anything still
+    // reading that column (e.g. historical "Up next" sort) keeps working.
+    const legacyDate = startDate || endDate || date || null;
     const payload = {
       name: name.trim(),
-      event_date: date || null,
+      event_date: legacyDate,
+      event_start_date: startDate || legacyDate,
+      event_end_date:   endDate   || legacyDate,
+      load_in_at:  loadInAt  ? new Date(loadInAt).toISOString()  : null,
+      load_out_at: loadOutAt ? new Date(loadOutAt).toISOString() : null,
       location: location.trim(),
+      venue_access_notes: accessNotes.trim(),
+      driver_name: driver.trim(),
+      vehicle_plate: vehicle.trim(),
       departments: Array.from(depts),
     };
     // New events start as "draft" so they go through the request → approve
     // workflow. Edits don't touch workflow_state — that advances via the
     // tracker buttons. Migration defaulted historical rows to 'approved'.
+    // Master-created deployments skip the approval gate by default.
+    const startState = admin?.role === 'master' ? 'approved' : 'draft';
     const q = isEdit
       ? sb.from('events').update(payload).eq('id', event.id).select().single()
-      : sb.from('events').insert({ ...payload, workflow_state: 'draft' }).select().single();
+      : sb.from('events').insert({ ...payload, workflow_state: startState }).select().single();
     const { data, error } = await q;
     if (error) { setErr(friendlyError(error)); setSaving(false); return; }
     onSaved(data); onClose();
@@ -1722,8 +1759,15 @@ function EventFormModal({ admin, event, onClose, onSaved }) {
         <div className="field"><label>Event name</label>
           <input value={name} onChange={e=>setName(e.target.value)} placeholder="e.g. Al Wasl Volleyball Tournament" autoFocus />
         </div>
-        <div className="field"><label>Date</label>
-          <input type="date" value={date} onChange={e=>setDate(e.target.value)} />
+        <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10}}>
+          <div className="field" style={{margin:0}}><label>Start date</label>
+            <input type="date" value={startDate}
+              onChange={e=>{ setStart(e.target.value); if (!endDate || endDate < e.target.value) setEnd(e.target.value); }} />
+          </div>
+          <div className="field" style={{margin:0}}><label>End date</label>
+            <input type="date" value={endDate} min={startDate || undefined}
+              onChange={e=>setEnd(e.target.value)} />
+          </div>
         </div>
         <div className="field"><label>Location / venue</label>
           <input value={location} onChange={e=>setLoc(e.target.value)} placeholder="e.g. Al Wasl Sports Club" />
@@ -1738,6 +1782,38 @@ function EventFormModal({ admin, event, onClose, onSaved }) {
               </button>
             ))}
           </div>
+        </div>
+        <div style={{borderTop:'1px solid #2a2a2a',marginTop:6,paddingTop:10}}>
+          <button type="button"
+            onClick={()=>setShowLog(s=>!s)}
+            style={{background:'transparent',border:0,color:'#9a9a9a',fontFamily:"'Manrope',sans-serif",fontSize:11,fontWeight:700,letterSpacing:'0.06em',textTransform:'uppercase',cursor:'pointer',padding:'4px 0'}}>
+            {showLogistics ? '▾' : '▸'} Logistics & access
+          </button>
+          {showLogistics && (
+            <div style={{paddingTop:6}}>
+              <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10}}>
+                <div className="field" style={{margin:0}}><label>Load-in (date & time)</label>
+                  <input type="datetime-local" value={loadInAt} onChange={e=>setLI(e.target.value)} />
+                </div>
+                <div className="field" style={{margin:0}}><label>Load-out (date & time)</label>
+                  <input type="datetime-local" value={loadOutAt} onChange={e=>setLO(e.target.value)} />
+                </div>
+              </div>
+              <div className="field"><label>Venue access notes</label>
+                <textarea value={accessNotes} onChange={e=>setAN(e.target.value)} rows="2"
+                  placeholder="e.g. Service elevator off Door 4, 7ft height limit · gate pass needed 48h ahead"
+                  style={{width:'100%',background:'#1a1a1a',border:'1px solid #2a2a2a',color:'#FAFAFA',padding:'8px 10px',fontFamily:"'Manrope',sans-serif",fontSize:13,resize:'vertical'}} />
+              </div>
+              <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10}}>
+                <div className="field" style={{margin:0}}><label>Driver</label>
+                  <input value={driver} onChange={e=>setDriver(e.target.value)} placeholder="e.g. Faisal · +971 50 …" />
+                </div>
+                <div className="field" style={{margin:0}}><label>Vehicle / plate</label>
+                  <input value={vehicle} onChange={e=>setVehicle(e.target.value)} placeholder="e.g. Pickup A 4569" />
+                </div>
+              </div>
+            </div>
+          )}
         </div>
         <div className="err">{err}</div>
         <div className="actions">
@@ -3101,7 +3177,7 @@ function EventDetail({ event, admin, onBack }) {
         <button className="btn sm ghost" onClick={onBack}>← Back</button>
         <div style={{flex:1,overflow:'hidden'}}>
           <div className="ev-name">{currentEvent.name}</div>
-          <div className="ev-sub">{fmtDate(currentEvent.event_date)}{currentEvent.location ? ' · '+currentEvent.location : ''}</div>
+          <div className="ev-sub">{fmtDateRange(currentEvent)}{currentEvent.location ? ' · '+currentEvent.location : ''}</div>
           {currentEvent.departments && currentEvent.departments.length > 0 && (
             <div className="dept-chips dept-chips-readonly">
               {currentEvent.departments.map(d => (
