@@ -1731,6 +1731,118 @@ h1, h2, h3 {
 .comment-compose textarea:focus { outline: none; border-color: var(--border-strong); }
 .comment-compose .btn { align-self: flex-end; }
 
+/* ─────────────────────────────────────────────────────────────────────────────
+   Deployment two-column layout: items grid + sidebar (workflow, contacts,
+   tasks). Stacks on tablet and below. Sidebar holds .sidebar-card blocks.
+   ───────────────────────────────────────────────────────────────────────────── */
+.deploy-layout {
+  display: flex;
+  gap: 20px;
+  align-items: flex-start;
+}
+.deploy-main    { flex: 1; min-width: 0; }
+.deploy-sidebar {
+  flex: none;
+  width: 300px;
+  display: flex; flex-direction: column; gap: 12px;
+  position: sticky; top: 12px;
+  max-height: calc(100vh - 24px);
+  overflow-y: auto;
+}
+@media (max-width: 1100px) {
+  .deploy-layout  { display: block; }
+  .deploy-sidebar { width: auto; position: static; max-height: none; margin-top: 18px; overflow: visible; }
+}
+
+.sidebar-card {
+  background: var(--surface-1);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 12px 14px;
+}
+.sidebar-card-head {
+  display: flex; align-items: center; justify-content: space-between;
+  font-family: 'Manrope', sans-serif;
+  font-size: 11px; font-weight: 700; letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-mute, #7A7A7A);
+  margin-bottom: 10px;
+}
+
+/* Workflow tracker — vertical stepper with bullets and a connector line */
+.workflow-steps {
+  list-style: none; padding: 0; margin: 0 0 12px 0;
+  display: flex; flex-direction: column; gap: 0;
+}
+.workflow-step {
+  display: flex; gap: 10px; align-items: flex-start;
+  padding: 6px 0;
+  position: relative;
+}
+.workflow-step::after {
+  content: '';
+  position: absolute;
+  left: 11px; top: 28px; bottom: -6px;
+  width: 1px; background: var(--border);
+}
+.workflow-step:last-child::after { display: none; }
+.workflow-bullet {
+  flex: none;
+  width: 22px; height: 22px;
+  border-radius: 50%;
+  border: 1px solid var(--border-strong, #3a3a3a);
+  display: flex; align-items: center; justify-content: center;
+  font-size: 12px; font-weight: 800;
+  background: var(--surface-2, #161616);
+  color: var(--text-mute, #7A7A7A);
+  z-index: 1;
+}
+.workflow-step-body { min-width: 0; flex: 1; }
+.workflow-step-label {
+  font-family: 'Manrope', sans-serif;
+  font-size: 13px; font-weight: 700;
+  color: var(--text);
+}
+.workflow-step-sub {
+  font-family: 'Manrope', sans-serif;
+  font-size: 11px;
+  color: var(--text-mute, #7A7A7A);
+  margin-top: 1px;
+}
+.workflow-step-done .workflow-bullet {
+  background: var(--accent-good-bg);
+  border-color: var(--accent-good-bd);
+  color: var(--accent-good);
+}
+.workflow-step-done .workflow-step-label,
+.workflow-step-done .workflow-step-sub { color: var(--text-mute, #7A7A7A); }
+.workflow-step-current .workflow-bullet {
+  background: var(--accent-info-bg);
+  border-color: var(--accent-info-bd);
+  color: var(--accent-info);
+  box-shadow: 0 0 0 3px rgba(90, 175, 212, 0.18);
+}
+.workflow-step-current .workflow-step-label { color: var(--accent-info); }
+.workflow-step-pending .workflow-step-label,
+.workflow-step-pending .workflow-step-sub { color: var(--text-mute, #7A7A7A); opacity: 0.7; }
+
+.workflow-actions { display: flex; flex-direction: column; gap: 4px; }
+.workflow-actions .btn { width: 100%; }
+.workflow-locked {
+  font-family: 'Manrope', sans-serif;
+  font-size: 11px; color: var(--text-mute, #7A7A7A);
+  letter-spacing: 0.04em;
+  text-align: center;
+  padding: 8px 0;
+}
+.workflow-closed {
+  font-family: 'Manrope', sans-serif;
+  font-size: 11px; color: var(--accent-good);
+  letter-spacing: 0.04em;
+  text-align: center;
+  padding: 8px 0;
+}
+
 /* Pre-flight banner at the top of upcoming-deployment detail.
    Compact one-line summary by default; expands to show issue rows on click. */
 .preflight {

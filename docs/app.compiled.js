@@ -45,6 +45,48 @@ const CLABEL = {
   retired: 'Retired'
 };
 const CATEGORIES = ['Audio', 'Signage', 'Furniture', 'Equipment', 'Comms', 'Other'];
+// Deployment workflow state machine. Order matters — index = stage number.
+// `gate` controls who can advance from this state forward.
+const WORKFLOW_STATES = [{
+  v: 'draft',
+  label: 'Draft',
+  sub: 'Building the request',
+  gate: 'admin'
+}, {
+  v: 'requested',
+  label: 'Requested',
+  sub: 'Awaiting approval',
+  gate: 'master'
+}, {
+  v: 'approved',
+  label: 'Approved',
+  sub: 'Ready to ship',
+  gate: 'admin'
+}, {
+  v: 'shipped',
+  label: 'Shipped',
+  sub: 'In transit to venue',
+  gate: 'admin'
+}, {
+  v: 'arrived',
+  label: 'Arrived',
+  sub: 'On site at the venue',
+  gate: 'admin'
+}, {
+  v: 'returning',
+  label: 'Returning',
+  sub: 'Coming back to storage',
+  gate: 'admin'
+}, {
+  v: 'closed',
+  label: 'Closed',
+  sub: 'All items returned & checked',
+  gate: 'admin'
+}];
+function workflowIndex(state) {
+  const i = WORKFLOW_STATES.findIndex(s => s.v === state);
+  return i === -1 ? 0 : i;
+}
 const DEPARTMENTS = ['Finance', 'Human Resources', 'Events and Community', 'Social Media Team', 'Logistics', 'Expansion', 'Design Team', 'Retail Team', 'Founders Content Creator'];
 function fmtDate(d) {
   if (!d) return '—';
@@ -85,7 +127,10 @@ function actionLabel(a) {
     retired: 'Retired',
     packed: 'Packed',
     unpacked: 'Marked not packed',
-    damage_reported: 'Damage reported'
+    damage_reported: 'Damage reported',
+    workflow_advanced: 'Workflow advanced',
+    workflow_sent_back: 'Sent back for revision',
+    workflow_rolled_back: 'Workflow rolled back'
   }[a] || a;
 }
 function isVideo(m) {
@@ -2604,7 +2649,13 @@ function EventFormModal({
       location: location.trim(),
       departments: Array.from(depts)
     };
-    const q = isEdit ? sb.from('events').update(payload).eq('id', event.id).select().single() : sb.from('events').insert(payload).select().single();
+    // New events start as "draft" so they go through the request → approve
+    // workflow. Edits don't touch workflow_state — that advances via the
+    // tracker buttons. Migration defaulted historical rows to 'approved'.
+    const q = isEdit ? sb.from('events').update(payload).eq('id', event.id).select().single() : sb.from('events').insert({
+      ...payload,
+      workflow_state: 'draft'
+    }).select().single();
     const {
       data,
       error
@@ -2668,6 +2719,115 @@ function EventFormModal({
     className: "btn primary",
     disabled: saving
   }, saving ? isEdit ? 'Saving…' : 'Creating…' : isEdit ? 'Save changes' : 'Create event'))));
+}
+
+// ---------- workflow tracker ----------
+// Vertical step list shown in the deployment sidebar. Past stages are checked
+// off, the current stage shows the action button for the next transition,
+// future stages are dimmed. Master can roll back any stage; admin can only
+// advance. State→action mapping lives here so the rest of the app stays
+// agnostic to workflow specifics.
+function WorkflowTracker({
+  event,
+  admin,
+  isMaster,
+  onAdvance
+}) {
+  const state = event.workflow_state || 'approved';
+  const idx = workflowIndex(state);
+  const canActOnCurrent = admin && (WORKFLOW_STATES[idx]?.gate === 'admin' || WORKFLOW_STATES[idx]?.gate === 'master' && isMaster);
+
+  // Primary CTAs — what to call the next-state button at each stage
+  const advanceCta = {
+    draft: {
+      label: 'Submit for approval',
+      to: 'requested'
+    },
+    requested: {
+      label: 'Approve request',
+      to: 'approved'
+    },
+    approved: {
+      label: 'Mark as shipped',
+      to: 'shipped'
+    },
+    shipped: {
+      label: 'Confirm arrival',
+      to: 'arrived'
+    },
+    arrived: {
+      label: 'Mark items returning',
+      to: 'returning'
+    },
+    returning: {
+      label: 'Close — all returned',
+      to: 'closed'
+    }
+  };
+  const cta = advanceCta[state];
+
+  // Secondary action: master sending back a request to the requester
+  function sendBack() {
+    onAdvance('draft', {
+      kind: 'send_back',
+      toast: 'Sent back to draft for revision'
+    });
+  }
+
+  // Master rollback — step back one stage
+  function rollback() {
+    if (idx === 0) return;
+    const prev = WORKFLOW_STATES[idx - 1].v;
+    onAdvance(prev, {
+      kind: 'rollback',
+      toast: `Rolled back to ${prev}`
+    });
+  }
+  return /*#__PURE__*/React.createElement("div", {
+    className: "sidebar-card workflow-card"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "sidebar-card-head"
+  }, /*#__PURE__*/React.createElement("span", null, "Workflow"), isMaster && idx > 0 && state !== 'closed' && /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    className: "link-btn",
+    onClick: rollback,
+    title: "Step back one stage"
+  }, "\u21B6 Back")), /*#__PURE__*/React.createElement("ol", {
+    className: "workflow-steps"
+  }, WORKFLOW_STATES.map((s, i) => {
+    const status = i < idx ? 'done' : i === idx ? 'current' : 'pending';
+    return /*#__PURE__*/React.createElement("li", {
+      key: s.v,
+      className: `workflow-step workflow-step-${status}`
+    }, /*#__PURE__*/React.createElement("div", {
+      className: "workflow-bullet"
+    }, status === 'done' ? '✓' : status === 'current' ? '●' : '○'), /*#__PURE__*/React.createElement("div", {
+      className: "workflow-step-body"
+    }, /*#__PURE__*/React.createElement("div", {
+      className: "workflow-step-label"
+    }, s.label), /*#__PURE__*/React.createElement("div", {
+      className: "workflow-step-sub"
+    }, s.sub)));
+  })), state !== 'closed' && /*#__PURE__*/React.createElement("div", {
+    className: "workflow-actions"
+  }, cta && canActOnCurrent && /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    className: "btn primary",
+    onClick: () => onAdvance(cta.to, {
+      toast: `Moved to ${cta.to}`
+    })
+  }, cta.label, " \u2192"), cta && !canActOnCurrent && /*#__PURE__*/React.createElement("div", {
+    className: "workflow-locked"
+  }, WORKFLOW_STATES[idx]?.gate === 'master' ? 'Awaiting master approval' : 'Sign in as admin to advance'), state === 'requested' && isMaster && /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    className: "btn ghost sm",
+    onClick: sendBack,
+    style: {
+      marginTop: 6
+    }
+  }, "Send back for revision")), state === 'closed' && /*#__PURE__*/React.createElement("div", {
+    className: "workflow-closed"
+  }, "Deployment closed \xB7 ", fmtTime(event.workflow_updated_at)));
 }
 
 // ---------- deployment comments / internal notes ----------
@@ -4210,6 +4370,46 @@ function EventDetail({
     if (query && !it.name.toLowerCase().includes(query.toLowerCase()) && !(ei.current_location || '').toLowerCase().includes(query.toLowerCase())) return false;
     return true;
   });
+
+  // Advance / regress / send-back the deployment's workflow_state. Each
+  // transition logs to history so the timeline records the full lifecycle.
+  async function setWorkflow(nextState, opts = {}) {
+    if (!admin) return;
+    const fromState = currentEvent.workflow_state || 'approved';
+    const now = new Date().toISOString();
+    const patch = {
+      workflow_state: nextState,
+      workflow_updated_at: now,
+      workflow_updated_by: admin.name
+    };
+    setCurrentEvent(prev => ({
+      ...prev,
+      ...patch
+    }));
+    try {
+      const {
+        data,
+        error
+      } = await sb.from('events').update(patch).eq('id', currentEvent.id).select().single();
+      if (error) throw error;
+      setCurrentEvent(data);
+      await sb.from('history').insert({
+        event_id: currentEvent.id,
+        action: opts.kind === 'send_back' ? 'workflow_sent_back' : opts.kind === 'rollback' ? 'workflow_rolled_back' : 'workflow_advanced',
+        changes: {
+          from: fromState,
+          to: nextState,
+          note: opts.note || null
+        },
+        changed_by: admin.name,
+        changed_at: now
+      });
+      toast(opts.toast || `Moved to ${nextState}`, 'ok');
+    } catch (e) {
+      toast(`Couldn't update workflow: ${friendlyError(e)}`, 'err');
+      load();
+    }
+  }
   const outCount = eventItems.filter(ei => ei.status === 'out').length;
   const returnedCount = eventItems.filter(ei => ei.status === 'returned').length;
   // "Packed" only counts items still on the deployment (not yet returned).
@@ -4311,7 +4511,9 @@ function EventDetail({
       color: '#d48a34'
     }
   }, scanMsg), /*#__PURE__*/React.createElement("div", {
-    className: "container"
+    className: "container deploy-layout"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "deploy-main"
   }, /*#__PURE__*/React.createElement(PreflightBanner, {
     event: currentEvent,
     eventItems: eventItems,
@@ -4481,7 +4683,14 @@ function EventDetail({
     event: currentEvent,
     admin: admin,
     viewerName: admin?.name || ''
-  })), assignOpen && /*#__PURE__*/React.createElement(AssignItemsModal, {
+  })), /*#__PURE__*/React.createElement("aside", {
+    className: "deploy-sidebar"
+  }, /*#__PURE__*/React.createElement(WorkflowTracker, {
+    event: currentEvent,
+    admin: admin,
+    isMaster: admin?.role === 'master',
+    onAdvance: setWorkflow
+  }))), assignOpen && /*#__PURE__*/React.createElement(AssignItemsModal, {
     event: event,
     admin: admin,
     existingItemIds: existingItemIds,
