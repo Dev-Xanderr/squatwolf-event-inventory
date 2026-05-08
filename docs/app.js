@@ -753,6 +753,142 @@ function ScannerModal({ onClose, onScan, title, mode = 'single', counter, lastSc
   );
 }
 
+// ---------- Stocktake flow ----------
+// Two-phase: scan continuously, accumulate verified item ids in a session set,
+// then "Done" → review modal showing what's missing vs. expected. No DB writes
+// while scanning; the session set is ephemeral. The review screen filters by
+// storage location so staff can do one room at a time.
+function StocktakeFlow({ onClose }) {
+  const [phase,    setPhase]    = useState('scanning');
+  const [items,    setItems]    = useState([]);
+  const [verified, setVerified] = useState(() => new Set());
+  const [unknown,  setUnknown]  = useState([]);  // codes that didn't match an item
+  const [lastScan, setLastScan] = useState(null);
+  const thumbs = useItemThumbs();
+
+  useEffect(() => {
+    sb.from('items').select('*').neq('condition', 'retired').order('name')
+      .then(({ data }) => setItems(data || []));
+  }, []);
+
+  function handleScan(id) {
+    if (verified.has(id)) {
+      setLastScan({ kind: 'info', label: 'Already verified', at: Date.now() });
+      return;
+    }
+    const item = items.find(it => it.id === id);
+    if (!item) {
+      setUnknown(u => u.includes(id) ? u : [...u, id]);
+      setLastScan({ kind: 'err', label: 'Unknown code — not in inventory', at: Date.now() });
+      return;
+    }
+    setVerified(v => { const n = new Set(v); n.add(id); return n; });
+    setLastScan({ kind: 'ok', label: `Verified: ${item.name}`, at: Date.now() });
+  }
+
+  function handleDone() {
+    if (verified.size === 0 && unknown.length === 0) { onClose(); return; }
+    setPhase('review');
+  }
+
+  if (phase === 'scanning') {
+    return (
+      <ScannerModal title="Stocktake"
+        mode="continuous"
+        counter={verified.size}
+        lastScan={lastScan}
+        onClose={handleDone}
+        onScan={handleScan} />
+    );
+  }
+  return <StocktakeReview items={items} verified={verified} unknown={unknown}
+    thumbs={thumbs}
+    onResume={() => setPhase('scanning')}
+    onClose={onClose} />;
+}
+
+function StocktakeReview({ items, verified, unknown, thumbs, onResume, onClose }) {
+  const [locFilter, setLocFilter] = useState('all');
+  const locations = ['all', ...Array.from(new Set(items.map(it => it.storage_location || 'No storage set'))).sort()];
+  const inScope = locFilter === 'all'
+    ? items
+    : items.filter(it => (it.storage_location || 'No storage set') === locFilter);
+  const missing  = inScope.filter(it => !verified.has(it.id));
+  const verifiedItems = inScope.filter(it =>  verified.has(it.id));
+
+  return (
+    <div className="backdrop" onClick={onClose}>
+      <div className="modal stocktake-review" onClick={e => e.stopPropagation()}>
+        <h2 style={{margin:0,marginBottom:6}}>Stocktake summary</h2>
+        <div className="stocktake-stats">
+          <div className="stocktake-stat">
+            <div className="stocktake-stat-value" style={{color:'var(--accent-good)'}}>{verifiedItems.length}</div>
+            <div className="stocktake-stat-label">Verified</div>
+          </div>
+          <div className="stocktake-stat">
+            <div className="stocktake-stat-value" style={{color: missing.length > 0 ? 'var(--accent-bad)' : 'var(--text-mute)'}}>{missing.length}</div>
+            <div className="stocktake-stat-label">Missing</div>
+          </div>
+          <div className="stocktake-stat">
+            <div className="stocktake-stat-value" style={{color: unknown.length > 0 ? 'var(--accent-warn)' : 'var(--text-mute)'}}>{unknown.length}</div>
+            <div className="stocktake-stat-label">Unknown scans</div>
+          </div>
+        </div>
+
+        <div style={{display:'flex',gap:8,marginTop:14,marginBottom:10,alignItems:'center'}}>
+          <span style={{fontSize:11,color:'#7A7A7A',letterSpacing:'0.04em',textTransform:'uppercase'}}>Filter by location</span>
+          <select className="filter" value={locFilter} onChange={e=>setLocFilter(e.target.value)}>
+            {locations.map(loc => (
+              <option key={loc} value={loc}>{loc === 'all' ? 'All locations' : loc}</option>
+            ))}
+          </select>
+        </div>
+
+        <div className="stocktake-list-head">Missing ({missing.length})</div>
+        {missing.length === 0 ? (
+          <div className="dash-empty allclear">ALL ACCOUNTED FOR</div>
+        ) : (
+          <div className="dash-list" style={{maxHeight:240,overflowY:'auto'}}>
+            {missing.map(it => (
+              <div className="dash-row dash-row-attention" key={it.id}>
+                <ItemThumb url={thumbs[it.id]} name={it.name} category={it.category} />
+                <div style={{flex:1,minWidth:0}}>
+                  <div className="dash-row-name">{it.name}</div>
+                  <div className="dash-row-sub">{it.category||'—'} · {it.storage_location||'No storage set'}</div>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {verifiedItems.length > 0 && (
+          <details style={{marginTop:14}}>
+            <summary style={{cursor:'pointer',fontSize:12,color:'#9a9a9a',letterSpacing:'0.04em',textTransform:'uppercase'}}>
+              Verified ({verifiedItems.length})
+            </summary>
+            <div className="dash-list" style={{marginTop:8,maxHeight:200,overflowY:'auto'}}>
+              {verifiedItems.map(it => (
+                <div className="dash-row" key={it.id}>
+                  <ItemThumb url={thumbs[it.id]} name={it.name} category={it.category} />
+                  <div style={{flex:1,minWidth:0}}>
+                    <div className="dash-row-name">{it.name}</div>
+                    <div className="dash-row-sub">{it.category||'—'} · {it.storage_location||'No storage set'}</div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </details>
+        )}
+
+        <div className="actions" style={{marginTop:16}}>
+          <button className="btn ghost" onClick={onResume}>Keep scanning</button>
+          <button className="btn primary" onClick={onClose}>Close</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ---------- CSV import modal ----------
 function CsvImportModal({ admin, existingItems, onClose, onImported }) {
   const [text, setText]         = useState('');
@@ -3127,6 +3263,7 @@ function App() {
   const [landing, setLanding]         = useState(null);  // { kind: 'item'|'event', id } | null
   const [online, setOnline]           = useState(() => typeof navigator !== 'undefined' ? navigator.onLine : true);
   const [scannerOpen, setScannerOpen] = useState(false);
+  const [stocktakeOpen, setStocktakeOpen] = useState(false);
 
   // Topbar scan: works from any tab. Scanned QR can be either an item
   // (master inventory) or a deployment — we look up which it is and route
@@ -3279,6 +3416,9 @@ function App() {
           {session.role === 'viewer' && <span className="role-pill viewer">Viewer<span className="role-name"> · {session.name}</span></span>}
           {!session.role             && <span className="role-pill pending">Pending<span className="role-name"> · {session.name}</span></span>}
           <button className="btn sm" onClick={()=>setScannerOpen(true)} title="Scan QR">⊟ Scan</button>
+          {admin && (
+            <button className="btn sm" onClick={()=>setStocktakeOpen(true)} title="Stocktake — verify what's in storage">☑ Stocktake</button>
+          )}
           {isMaster && (
             <button className="btn sm" onClick={()=>setManageOpen(true)} title="Manage team">⚙ Team</button>
           )}
@@ -3319,6 +3459,9 @@ function App() {
           onClose={()=>setScannerOpen(false)}
           onScan={handleTopbarScan}
         />
+      )}
+      {stocktakeOpen && (
+        <StocktakeFlow onClose={()=>setStocktakeOpen(false)} />
       )}
       <ToastHost />
       <ConfirmHost />

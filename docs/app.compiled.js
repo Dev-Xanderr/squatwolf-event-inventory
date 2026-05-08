@@ -1137,6 +1137,231 @@ function ScannerModal({
   }, mode === 'continuous' ? 'Done' : 'Cancel'))));
 }
 
+// ---------- Stocktake flow ----------
+// Two-phase: scan continuously, accumulate verified item ids in a session set,
+// then "Done" → review modal showing what's missing vs. expected. No DB writes
+// while scanning; the session set is ephemeral. The review screen filters by
+// storage location so staff can do one room at a time.
+function StocktakeFlow({
+  onClose
+}) {
+  const [phase, setPhase] = useState('scanning');
+  const [items, setItems] = useState([]);
+  const [verified, setVerified] = useState(() => new Set());
+  const [unknown, setUnknown] = useState([]); // codes that didn't match an item
+  const [lastScan, setLastScan] = useState(null);
+  const thumbs = useItemThumbs();
+  useEffect(() => {
+    sb.from('items').select('*').neq('condition', 'retired').order('name').then(({
+      data
+    }) => setItems(data || []));
+  }, []);
+  function handleScan(id) {
+    if (verified.has(id)) {
+      setLastScan({
+        kind: 'info',
+        label: 'Already verified',
+        at: Date.now()
+      });
+      return;
+    }
+    const item = items.find(it => it.id === id);
+    if (!item) {
+      setUnknown(u => u.includes(id) ? u : [...u, id]);
+      setLastScan({
+        kind: 'err',
+        label: 'Unknown code — not in inventory',
+        at: Date.now()
+      });
+      return;
+    }
+    setVerified(v => {
+      const n = new Set(v);
+      n.add(id);
+      return n;
+    });
+    setLastScan({
+      kind: 'ok',
+      label: `Verified: ${item.name}`,
+      at: Date.now()
+    });
+  }
+  function handleDone() {
+    if (verified.size === 0 && unknown.length === 0) {
+      onClose();
+      return;
+    }
+    setPhase('review');
+  }
+  if (phase === 'scanning') {
+    return /*#__PURE__*/React.createElement(ScannerModal, {
+      title: "Stocktake",
+      mode: "continuous",
+      counter: verified.size,
+      lastScan: lastScan,
+      onClose: handleDone,
+      onScan: handleScan
+    });
+  }
+  return /*#__PURE__*/React.createElement(StocktakeReview, {
+    items: items,
+    verified: verified,
+    unknown: unknown,
+    thumbs: thumbs,
+    onResume: () => setPhase('scanning'),
+    onClose: onClose
+  });
+}
+function StocktakeReview({
+  items,
+  verified,
+  unknown,
+  thumbs,
+  onResume,
+  onClose
+}) {
+  const [locFilter, setLocFilter] = useState('all');
+  const locations = ['all', ...Array.from(new Set(items.map(it => it.storage_location || 'No storage set'))).sort()];
+  const inScope = locFilter === 'all' ? items : items.filter(it => (it.storage_location || 'No storage set') === locFilter);
+  const missing = inScope.filter(it => !verified.has(it.id));
+  const verifiedItems = inScope.filter(it => verified.has(it.id));
+  return /*#__PURE__*/React.createElement("div", {
+    className: "backdrop",
+    onClick: onClose
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "modal stocktake-review",
+    onClick: e => e.stopPropagation()
+  }, /*#__PURE__*/React.createElement("h2", {
+    style: {
+      margin: 0,
+      marginBottom: 6
+    }
+  }, "Stocktake summary"), /*#__PURE__*/React.createElement("div", {
+    className: "stocktake-stats"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "stocktake-stat"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "stocktake-stat-value",
+    style: {
+      color: 'var(--accent-good)'
+    }
+  }, verifiedItems.length), /*#__PURE__*/React.createElement("div", {
+    className: "stocktake-stat-label"
+  }, "Verified")), /*#__PURE__*/React.createElement("div", {
+    className: "stocktake-stat"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "stocktake-stat-value",
+    style: {
+      color: missing.length > 0 ? 'var(--accent-bad)' : 'var(--text-mute)'
+    }
+  }, missing.length), /*#__PURE__*/React.createElement("div", {
+    className: "stocktake-stat-label"
+  }, "Missing")), /*#__PURE__*/React.createElement("div", {
+    className: "stocktake-stat"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "stocktake-stat-value",
+    style: {
+      color: unknown.length > 0 ? 'var(--accent-warn)' : 'var(--text-mute)'
+    }
+  }, unknown.length), /*#__PURE__*/React.createElement("div", {
+    className: "stocktake-stat-label"
+  }, "Unknown scans"))), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: 'flex',
+      gap: 8,
+      marginTop: 14,
+      marginBottom: 10,
+      alignItems: 'center'
+    }
+  }, /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontSize: 11,
+      color: '#7A7A7A',
+      letterSpacing: '0.04em',
+      textTransform: 'uppercase'
+    }
+  }, "Filter by location"), /*#__PURE__*/React.createElement("select", {
+    className: "filter",
+    value: locFilter,
+    onChange: e => setLocFilter(e.target.value)
+  }, locations.map(loc => /*#__PURE__*/React.createElement("option", {
+    key: loc,
+    value: loc
+  }, loc === 'all' ? 'All locations' : loc)))), /*#__PURE__*/React.createElement("div", {
+    className: "stocktake-list-head"
+  }, "Missing (", missing.length, ")"), missing.length === 0 ? /*#__PURE__*/React.createElement("div", {
+    className: "dash-empty allclear"
+  }, "ALL ACCOUNTED FOR") : /*#__PURE__*/React.createElement("div", {
+    className: "dash-list",
+    style: {
+      maxHeight: 240,
+      overflowY: 'auto'
+    }
+  }, missing.map(it => /*#__PURE__*/React.createElement("div", {
+    className: "dash-row dash-row-attention",
+    key: it.id
+  }, /*#__PURE__*/React.createElement(ItemThumb, {
+    url: thumbs[it.id],
+    name: it.name,
+    category: it.category
+  }), /*#__PURE__*/React.createElement("div", {
+    style: {
+      flex: 1,
+      minWidth: 0
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "dash-row-name"
+  }, it.name), /*#__PURE__*/React.createElement("div", {
+    className: "dash-row-sub"
+  }, it.category || '—', " \xB7 ", it.storage_location || 'No storage set'))))), verifiedItems.length > 0 && /*#__PURE__*/React.createElement("details", {
+    style: {
+      marginTop: 14
+    }
+  }, /*#__PURE__*/React.createElement("summary", {
+    style: {
+      cursor: 'pointer',
+      fontSize: 12,
+      color: '#9a9a9a',
+      letterSpacing: '0.04em',
+      textTransform: 'uppercase'
+    }
+  }, "Verified (", verifiedItems.length, ")"), /*#__PURE__*/React.createElement("div", {
+    className: "dash-list",
+    style: {
+      marginTop: 8,
+      maxHeight: 200,
+      overflowY: 'auto'
+    }
+  }, verifiedItems.map(it => /*#__PURE__*/React.createElement("div", {
+    className: "dash-row",
+    key: it.id
+  }, /*#__PURE__*/React.createElement(ItemThumb, {
+    url: thumbs[it.id],
+    name: it.name,
+    category: it.category
+  }), /*#__PURE__*/React.createElement("div", {
+    style: {
+      flex: 1,
+      minWidth: 0
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "dash-row-name"
+  }, it.name), /*#__PURE__*/React.createElement("div", {
+    className: "dash-row-sub"
+  }, it.category || '—', " \xB7 ", it.storage_location || 'No storage set')))))), /*#__PURE__*/React.createElement("div", {
+    className: "actions",
+    style: {
+      marginTop: 16
+    }
+  }, /*#__PURE__*/React.createElement("button", {
+    className: "btn ghost",
+    onClick: onResume
+  }, "Keep scanning"), /*#__PURE__*/React.createElement("button", {
+    className: "btn primary",
+    onClick: onClose
+  }, "Close"))));
+}
+
 // ---------- CSV import modal ----------
 function CsvImportModal({
   admin,
@@ -4686,6 +4911,7 @@ function App() {
   const [landing, setLanding] = useState(null); // { kind: 'item'|'event', id } | null
   const [online, setOnline] = useState(() => typeof navigator !== 'undefined' ? navigator.onLine : true);
   const [scannerOpen, setScannerOpen] = useState(false);
+  const [stocktakeOpen, setStocktakeOpen] = useState(false);
 
   // Topbar scan: works from any tab. Scanned QR can be either an item
   // (master inventory) or a deployment — we look up which it is and route
@@ -4894,7 +5120,11 @@ function App() {
     className: "btn sm",
     onClick: () => setScannerOpen(true),
     title: "Scan QR"
-  }, "\u229F Scan"), isMaster && /*#__PURE__*/React.createElement("button", {
+  }, "\u229F Scan"), admin && /*#__PURE__*/React.createElement("button", {
+    className: "btn sm",
+    onClick: () => setStocktakeOpen(true),
+    title: "Stocktake \u2014 verify what's in storage"
+  }, "\u2611 Stocktake"), isMaster && /*#__PURE__*/React.createElement("button", {
     className: "btn sm",
     onClick: () => setManageOpen(true),
     title: "Manage team"
@@ -4939,6 +5169,8 @@ function App() {
     title: "Scan QR",
     onClose: () => setScannerOpen(false),
     onScan: handleTopbarScan
+  }), stocktakeOpen && /*#__PURE__*/React.createElement(StocktakeFlow, {
+    onClose: () => setStocktakeOpen(false)
   }), /*#__PURE__*/React.createElement(ToastHost, null), /*#__PURE__*/React.createElement(ConfirmHost, null));
 }
 ReactDOM.createRoot(document.getElementById('root')).render(/*#__PURE__*/React.createElement(App, null));
