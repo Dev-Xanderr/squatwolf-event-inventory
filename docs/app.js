@@ -2298,14 +2298,15 @@ function ItemsTab({ admin, openItemId, onOpened }) {
         (data||[]).forEach(r => { m[r.item_id] = r.events?.name || 'Unknown'; });
         setOutMap(m);
       });
-    // first master-level photo per item, used as the card thumbnail.
-    // Only image attachments (skip videos), only event_item_id IS NULL (master).
-    sb.from('attachments').select('item_id, url, mime_type, uploaded_at')
-      .is('event_item_id', null)
+    // Card thumbnail per item. Prefer the oldest master-level photo
+    // (event_item_id IS NULL); fall back to the oldest event-level photo
+    // so items photographed only during a deployment still get a tile image.
+    sb.from('attachments').select('item_id, url, mime_type, event_item_id, uploaded_at')
       .like('mime_type', 'image/%')
       .order('uploaded_at', { ascending: true })
       .then(({ data }) => {
         const t = {};
+        (data||[]).forEach(a => { if (a.event_item_id == null && !t[a.item_id]) t[a.item_id] = a.url; });
         (data||[]).forEach(a => { if (!t[a.item_id]) t[a.item_id] = a.url; });
         setThumbs(t);
       });
