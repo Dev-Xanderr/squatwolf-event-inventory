@@ -2355,6 +2355,83 @@ function PreflightBanner({ event, eventItems, items }) {
   );
 }
 
+// ---------- delete deployment ----------
+// Master-only destructive action with two guardrails:
+//   1. Block the delete entirely if any items are still 'out' — leaving them
+//      orphaned would make them invisible-but-checked-out forever. Surface
+//      a "Return all first" button that opens BulkReturnModal.
+//   2. If clear, require typing the deployment name verbatim to confirm.
+// Cascades take care of event_items, comments, contacts, and event-scoped
+// history rows via the existing FK ON DELETE CASCADE chain.
+function DeleteDeploymentModal({ event, eventItems, admin, onClose, onReturnAll, onDeleted }) {
+  const [typed, setTyped]   = useState('');
+  const [busy,  setBusy]    = useState(false);
+  const [err,   setErr]     = useState('');
+  const outCount  = eventItems.filter(ei => ei.status === 'out').length;
+  const blocked   = outCount > 0;
+  const canDelete = !blocked && typed.trim() === event.name.trim();
+
+  async function doDelete() {
+    if (!canDelete || busy) return;
+    setBusy(true); setErr('');
+    try {
+      const { error } = await sb.from('events').delete().eq('id', event.id);
+      if (error) throw error;
+      onDeleted();
+    } catch (e) {
+      setErr(friendlyError(e));
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="backdrop" onClick={onClose}>
+      <div className="modal" style={{maxWidth:460}} onClick={e=>e.stopPropagation()}>
+        <h2 style={{color: blocked ? undefined : 'var(--accent-bad)'}}>
+          {blocked ? 'Return items first' : 'Delete deployment'}
+        </h2>
+        {blocked ? (
+          <>
+            <div style={{fontSize:13,color:'#d4d4d4',lineHeight:1.5}}>
+              <b>{event.name}</b> still has <b>{outCount}</b> item{outCount===1?'':'s'} marked
+              as out. Deleting it now would leave them stuck in "checked out"
+              limbo with no way back to storage.
+            </div>
+            <div style={{fontSize:12,color:'#9a9a9a',marginTop:10,letterSpacing:'0.04em'}}>
+              Return them first using the bulk-return flow, then come back to delete.
+            </div>
+            <div className="actions" style={{marginTop:14}}>
+              <button className="btn ghost" onClick={onClose}>Cancel</button>
+              <button className="btn primary" onClick={onReturnAll}>↩ Return all items</button>
+            </div>
+          </>
+        ) : (
+          <>
+            <div style={{fontSize:13,color:'#d4d4d4',lineHeight:1.5}}>
+              This permanently deletes the deployment, all its item assignments,
+              comments, contacts, and history. <b>This cannot be undone.</b>
+              Master-level item history and master-level photos survive.
+            </div>
+            <div className="field" style={{marginTop:14}}>
+              <label>Type the deployment name to confirm</label>
+              <input value={typed} onChange={e=>setTyped(e.target.value)}
+                placeholder={event.name} autoFocus />
+            </div>
+            {err && <div className="err">{err}</div>}
+            <div className="actions" style={{marginTop:6}}>
+              <button className="btn ghost" onClick={onClose}>Cancel</button>
+              <button className="btn primary" onClick={doDelete} disabled={!canDelete || busy}
+                style={canDelete ? {background:'var(--accent-bad-bg)',borderColor:'var(--accent-bad-bd)',color:'var(--accent-bad)'} : undefined}>
+                {busy ? 'Deleting…' : '🗑 Delete deployment'}
+              </button>
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // ---------- duplicate deployment ----------
 // Clones an event + all its current assignments to a fresh deployment.
 // Items currently out at OTHER deployments are skipped — can't double-book.
@@ -3105,6 +3182,7 @@ function EventDetail({ event, admin, onBack }) {
   const [manifestOpen, setManifest] = useState(false);
   const [editOpen, setEditOpen]     = useState(false);
   const [dupOpen, setDupOpen]       = useState(false);
+  const [delOpen, setDelOpen]       = useState(false);
   const [damageFor, setDamageFor]   = useState(null);  // { ei, item } when reporting damage on a row
   // Local copy of the event so edits reflect immediately without round-tripping
   // through EventsTab's list. (Parent list refreshes on next tab visit.)
@@ -3318,6 +3396,9 @@ function EventDetail({ event, admin, onBack }) {
         {admin && eventItems.length > 0 && (
           <button className="btn sm" onClick={()=>setDupOpen(true)} title="Duplicate deployment">⎘ Duplicate</button>
         )}
+        {admin?.role === 'master' && (
+          <button className="btn sm" onClick={()=>setDelOpen(true)} title="Delete deployment" style={{color:'var(--accent-bad)'}}>🗑 Delete</button>
+        )}
         {admin && <button className="btn sm primary" onClick={()=>setAssignOpen(true)}>+ Assign</button>}
         {!admin && <LoginPrompt verb="manage" />}
       </div>
@@ -3484,6 +3565,12 @@ function EventDetail({ event, admin, onBack }) {
         <DamageReportModal item={damageFor.item} eventItem={damageFor.ei} admin={admin}
           onClose={()=>setDamageFor(null)}
           onSaved={()=>{ setDamageFor(null); load(); toast('Damage reported', 'ok'); }} />
+      )}
+      {delOpen && (
+        <DeleteDeploymentModal event={currentEvent} eventItems={eventItems} admin={admin}
+          onClose={()=>setDelOpen(false)}
+          onReturnAll={()=>{ setDelOpen(false); setBulkOpen(true); }}
+          onDeleted={()=>{ toast(`Deleted "${currentEvent.name}"`, 'ok'); onBack(); }} />
       )}
     </div>
   );

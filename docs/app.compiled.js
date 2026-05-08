@@ -3574,6 +3574,118 @@ function PreflightBanner({
   }, CLABEL[ei.condition])))))));
 }
 
+// ---------- delete deployment ----------
+// Master-only destructive action with two guardrails:
+//   1. Block the delete entirely if any items are still 'out' — leaving them
+//      orphaned would make them invisible-but-checked-out forever. Surface
+//      a "Return all first" button that opens BulkReturnModal.
+//   2. If clear, require typing the deployment name verbatim to confirm.
+// Cascades take care of event_items, comments, contacts, and event-scoped
+// history rows via the existing FK ON DELETE CASCADE chain.
+function DeleteDeploymentModal({
+  event,
+  eventItems,
+  admin,
+  onClose,
+  onReturnAll,
+  onDeleted
+}) {
+  const [typed, setTyped] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState('');
+  const outCount = eventItems.filter(ei => ei.status === 'out').length;
+  const blocked = outCount > 0;
+  const canDelete = !blocked && typed.trim() === event.name.trim();
+  async function doDelete() {
+    if (!canDelete || busy) return;
+    setBusy(true);
+    setErr('');
+    try {
+      const {
+        error
+      } = await sb.from('events').delete().eq('id', event.id);
+      if (error) throw error;
+      onDeleted();
+    } catch (e) {
+      setErr(friendlyError(e));
+      setBusy(false);
+    }
+  }
+  return /*#__PURE__*/React.createElement("div", {
+    className: "backdrop",
+    onClick: onClose
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "modal",
+    style: {
+      maxWidth: 460
+    },
+    onClick: e => e.stopPropagation()
+  }, /*#__PURE__*/React.createElement("h2", {
+    style: {
+      color: blocked ? undefined : 'var(--accent-bad)'
+    }
+  }, blocked ? 'Return items first' : 'Delete deployment'), blocked ? /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 13,
+      color: '#d4d4d4',
+      lineHeight: 1.5
+    }
+  }, /*#__PURE__*/React.createElement("b", null, event.name), " still has ", /*#__PURE__*/React.createElement("b", null, outCount), " item", outCount === 1 ? '' : 's', " marked as out. Deleting it now would leave them stuck in \"checked out\" limbo with no way back to storage."), /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 12,
+      color: '#9a9a9a',
+      marginTop: 10,
+      letterSpacing: '0.04em'
+    }
+  }, "Return them first using the bulk-return flow, then come back to delete."), /*#__PURE__*/React.createElement("div", {
+    className: "actions",
+    style: {
+      marginTop: 14
+    }
+  }, /*#__PURE__*/React.createElement("button", {
+    className: "btn ghost",
+    onClick: onClose
+  }, "Cancel"), /*#__PURE__*/React.createElement("button", {
+    className: "btn primary",
+    onClick: onReturnAll
+  }, "\u21A9 Return all items"))) : /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 13,
+      color: '#d4d4d4',
+      lineHeight: 1.5
+    }
+  }, "This permanently deletes the deployment, all its item assignments, comments, contacts, and history. ", /*#__PURE__*/React.createElement("b", null, "This cannot be undone."), "Master-level item history and master-level photos survive."), /*#__PURE__*/React.createElement("div", {
+    className: "field",
+    style: {
+      marginTop: 14
+    }
+  }, /*#__PURE__*/React.createElement("label", null, "Type the deployment name to confirm"), /*#__PURE__*/React.createElement("input", {
+    value: typed,
+    onChange: e => setTyped(e.target.value),
+    placeholder: event.name,
+    autoFocus: true
+  })), err && /*#__PURE__*/React.createElement("div", {
+    className: "err"
+  }, err), /*#__PURE__*/React.createElement("div", {
+    className: "actions",
+    style: {
+      marginTop: 6
+    }
+  }, /*#__PURE__*/React.createElement("button", {
+    className: "btn ghost",
+    onClick: onClose
+  }, "Cancel"), /*#__PURE__*/React.createElement("button", {
+    className: "btn primary",
+    onClick: doDelete,
+    disabled: !canDelete || busy,
+    style: canDelete ? {
+      background: 'var(--accent-bad-bg)',
+      borderColor: 'var(--accent-bad-bd)',
+      color: 'var(--accent-bad)'
+    } : undefined
+  }, busy ? 'Deleting…' : '🗑 Delete deployment')))));
+}
+
 // ---------- duplicate deployment ----------
 // Clones an event + all its current assignments to a fresh deployment.
 // Items currently out at OTHER deployments are skipped — can't double-book.
@@ -4728,6 +4840,7 @@ function EventDetail({
   const [manifestOpen, setManifest] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
   const [dupOpen, setDupOpen] = useState(false);
+  const [delOpen, setDelOpen] = useState(false);
   const [damageFor, setDamageFor] = useState(null); // { ei, item } when reporting damage on a row
   // Local copy of the event so edits reflect immediately without round-tripping
   // through EventsTab's list. (Parent list refreshes on next tab visit.)
@@ -5040,7 +5153,14 @@ function EventDetail({
     className: "btn sm",
     onClick: () => setDupOpen(true),
     title: "Duplicate deployment"
-  }, "\u2398 Duplicate"), admin && /*#__PURE__*/React.createElement("button", {
+  }, "\u2398 Duplicate"), admin?.role === 'master' && /*#__PURE__*/React.createElement("button", {
+    className: "btn sm",
+    onClick: () => setDelOpen(true),
+    title: "Delete deployment",
+    style: {
+      color: 'var(--accent-bad)'
+    }
+  }, "\uD83D\uDDD1 Delete"), admin && /*#__PURE__*/React.createElement("button", {
     className: "btn sm primary",
     onClick: () => setAssignOpen(true)
   }, "+ Assign"), !admin && /*#__PURE__*/React.createElement(LoginPrompt, {
@@ -5303,6 +5423,19 @@ function EventDetail({
       setDamageFor(null);
       load();
       toast('Damage reported', 'ok');
+    }
+  }), delOpen && /*#__PURE__*/React.createElement(DeleteDeploymentModal, {
+    event: currentEvent,
+    eventItems: eventItems,
+    admin: admin,
+    onClose: () => setDelOpen(false),
+    onReturnAll: () => {
+      setDelOpen(false);
+      setBulkOpen(true);
+    },
+    onDeleted: () => {
+      toast(`Deleted "${currentEvent.name}"`, 'ok');
+      onBack();
     }
   }));
 }
