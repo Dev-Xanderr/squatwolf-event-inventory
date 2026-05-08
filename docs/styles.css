@@ -1891,6 +1891,64 @@ h1, h2, h3 {
 .wf-chip-returning { background: var(--accent-out-bg);     border-color: var(--accent-out-bd);          color: var(--accent-out); }
 .wf-chip-closed    { background: #1f1f1f;                  border-color: var(--border);                 color: var(--text-mute, #7A7A7A); }
 
+/* "More" overflow menu — collects destructive actions (Return all,
+   Delete deployment) so they're not sitting next to Edit / Duplicate
+   in the deployment header where a misclick is too easy. */
+.more-menu { position: relative; display: inline-block; }
+.more-menu-pop {
+  position: absolute;
+  top: 100%; right: 0;
+  margin-top: 4px;
+  background: var(--surface-1);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 4px;
+  z-index: 20;
+  min-width: 220px;
+  display: flex; flex-direction: column;
+  box-shadow: 0 6px 20px rgba(0,0,0,0.4);
+}
+.more-menu-item {
+  display: block; width: 100%;
+  text-align: left;
+  background: transparent; border: 0;
+  padding: 9px 12px;
+  border-radius: 6px;
+  font-family: 'Manrope', sans-serif;
+  font-size: 13px; color: var(--text);
+  cursor: pointer;
+  letter-spacing: 0.02em;
+}
+.more-menu-item:hover { background: var(--surface-2, #1f1f1f); }
+.more-menu-item.more-menu-danger { color: var(--accent-bad); }
+.more-menu-item.more-menu-danger:hover { background: var(--accent-bad-bg); }
+
+/* Pending-request badge on the ⚙ Team button */
+.team-btn { position: relative; }
+.team-btn-badge {
+  display: inline-flex; align-items: center; justify-content: center;
+  margin-left: 6px;
+  min-width: 18px; height: 18px;
+  padding: 0 5px;
+  border-radius: 9px;
+  background: var(--accent-bad);
+  color: #FAFAFA;
+  font-family: 'Manrope', sans-serif;
+  font-size: 10px; font-weight: 800;
+  letter-spacing: 0.02em;
+}
+
+/* Inline legend in the Calendar toolbar (always visible) — slimmer than
+   the previous below-grid placement. */
+.cal-legend.cal-legend-inline {
+  border: 0;
+  padding: 4px 0 12px;
+  background: transparent;
+  gap: 6px;
+}
+.cal-legend.cal-legend-inline .cal-legend-swatch { width: 10px; height: 10px; }
+.cal-legend.cal-legend-inline .cal-legend-label { font-size: 10px; margin-right: 4px; }
+
 /* Workflow tracker — vertical stepper with bullets and a connector line */
 .workflow-steps {
   list-style: none; padding: 0; margin: 0 0 12px 0;

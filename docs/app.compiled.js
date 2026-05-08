@@ -3904,7 +3904,7 @@ function DeleteDeploymentModal({
       color: '#d4d4d4',
       lineHeight: 1.5
     }
-  }, "This permanently deletes the deployment, all its item assignments, comments, contacts, and history. ", /*#__PURE__*/React.createElement("b", null, "This cannot be undone."), "Master-level item history and master-level photos survive."), /*#__PURE__*/React.createElement("div", {
+  }, "This permanently deletes ", /*#__PURE__*/React.createElement("b", null, event.name), ", all its item assignments, comments, contacts, and history. ", /*#__PURE__*/React.createElement("b", null, "This cannot be undone."), " Master-level item history and master-level photos survive."), /*#__PURE__*/React.createElement("div", {
     className: "field",
     style: {
       marginTop: 14
@@ -3912,7 +3912,7 @@ function DeleteDeploymentModal({
   }, /*#__PURE__*/React.createElement("label", null, "Type the deployment name to confirm"), /*#__PURE__*/React.createElement("input", {
     value: typed,
     onChange: e => setTyped(e.target.value),
-    placeholder: event.name,
+    placeholder: "Type the name above to confirm",
     autoFocus: true
   })), err && /*#__PURE__*/React.createElement("div", {
     className: "err"
@@ -5091,6 +5091,7 @@ function EventDetail({
   const [editOpen, setEditOpen] = useState(false);
   const [dupOpen, setDupOpen] = useState(false);
   const [delOpen, setDelOpen] = useState(false);
+  const [moreOpen, setMoreOpen] = useState(false); // overflow menu for Return all + Delete
   const [damageFor, setDamageFor] = useState(null); // { ei, item } when reporting damage on a row
   // Local copy of the event so edits reflect immediately without round-tripping
   // through EventsTab's list. (Parent list refreshes on next tab visit.)
@@ -5392,11 +5393,7 @@ function EventDetail({
     className: "btn sm",
     onClick: () => setManifest(true),
     title: "Printable manifest"
-  }, "\u2399 Manifest"), admin && outCount > 0 && /*#__PURE__*/React.createElement("button", {
-    className: "btn sm",
-    onClick: () => setBulkOpen(true),
-    title: "Return all out items"
-  }, "\u21A9 Return all"), admin && /*#__PURE__*/React.createElement("button", {
+  }, "\u2399 Manifest"), admin && /*#__PURE__*/React.createElement("button", {
     className: "btn sm",
     onClick: () => setEditOpen(true),
     title: "Edit deployment"
@@ -5404,14 +5401,24 @@ function EventDetail({
     className: "btn sm",
     onClick: () => setDupOpen(true),
     title: "Duplicate deployment"
-  }, "\u2398 Duplicate"), admin?.role === 'master' && /*#__PURE__*/React.createElement("button", {
+  }, "\u2398 Duplicate"), admin && (outCount > 0 || admin.role === 'master') && /*#__PURE__*/React.createElement("div", {
+    className: "more-menu",
+    onMouseLeave: () => setMoreOpen(false)
+  }, /*#__PURE__*/React.createElement("button", {
     className: "btn sm",
-    onClick: () => setDelOpen(true),
-    title: "Delete deployment",
-    style: {
-      color: 'var(--accent-bad)'
-    }
-  }, "\uD83D\uDDD1 Delete"), admin && /*#__PURE__*/React.createElement("button", {
+    onClick: () => setMoreOpen(o => !o),
+    title: "More actions",
+    "aria-expanded": moreOpen
+  }, "\u22EF More"), moreOpen && /*#__PURE__*/React.createElement("div", {
+    className: "more-menu-pop",
+    onClick: () => setMoreOpen(false)
+  }, outCount > 0 && /*#__PURE__*/React.createElement("button", {
+    className: "more-menu-item",
+    onClick: () => setBulkOpen(true)
+  }, "\u21A9 Return all out items"), admin.role === 'master' && /*#__PURE__*/React.createElement("button", {
+    className: "more-menu-item more-menu-danger",
+    onClick: () => setDelOpen(true)
+  }, "\uD83D\uDDD1 Delete deployment"))), admin && /*#__PURE__*/React.createElement("button", {
     className: "btn sm primary",
     onClick: () => setAssignOpen(true)
   }, "+ Assign"), !admin && /*#__PURE__*/React.createElement(LoginPrompt, {
@@ -6573,7 +6580,41 @@ function CalendarTab({
     month: 'short',
     day: 'numeric',
     year: 'numeric'
-  }))), rows.length === 0 ? /*#__PURE__*/React.createElement("div", {
+  }))), /*#__PURE__*/React.createElement("div", {
+    className: "cal-legend cal-legend-inline"
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "cal-legend-swatch cal-bar-state-draft"
+  }), /*#__PURE__*/React.createElement("span", {
+    className: "cal-legend-label"
+  }, "Draft"), /*#__PURE__*/React.createElement("span", {
+    className: "cal-legend-swatch cal-bar-state-requested"
+  }), /*#__PURE__*/React.createElement("span", {
+    className: "cal-legend-label"
+  }, "Requested"), /*#__PURE__*/React.createElement("span", {
+    className: "cal-legend-swatch cal-bar-state-approved"
+  }), /*#__PURE__*/React.createElement("span", {
+    className: "cal-legend-label"
+  }, "Approved"), /*#__PURE__*/React.createElement("span", {
+    className: "cal-legend-swatch cal-bar-state-shipped"
+  }), /*#__PURE__*/React.createElement("span", {
+    className: "cal-legend-label"
+  }, "Shipped"), /*#__PURE__*/React.createElement("span", {
+    className: "cal-legend-swatch cal-bar-state-arrived"
+  }), /*#__PURE__*/React.createElement("span", {
+    className: "cal-legend-label"
+  }, "On site"), /*#__PURE__*/React.createElement("span", {
+    className: "cal-legend-swatch cal-bar-state-returning"
+  }), /*#__PURE__*/React.createElement("span", {
+    className: "cal-legend-label"
+  }, "Returning"), /*#__PURE__*/React.createElement("span", {
+    className: "cal-legend-swatch cal-bar-state-closed"
+  }), /*#__PURE__*/React.createElement("span", {
+    className: "cal-legend-label"
+  }, "Closed"), /*#__PURE__*/React.createElement("span", {
+    className: "cal-legend-swatch cal-bar-overdue"
+  }), /*#__PURE__*/React.createElement("span", {
+    className: "cal-legend-label"
+  }, "Overdue")), rows.length === 0 ? /*#__PURE__*/React.createElement("div", {
     className: "empty"
   }, emptyText) : /*#__PURE__*/React.createElement("div", {
     className: "cal-grid"
@@ -6667,41 +6708,7 @@ function CalendarTab({
     }, /*#__PURE__*/React.createElement("span", {
       className: "cal-bar-text"
     }, overdue && /*#__PURE__*/React.createElement(React.Fragment, null, "\u26A0 "), state, itemsStillOut > 0 && state !== 'closed' && /*#__PURE__*/React.createElement(React.Fragment, null, " \xB7 ", itemsStillOut, " out")))));
-  })), /*#__PURE__*/React.createElement("div", {
-    className: "cal-legend"
-  }, /*#__PURE__*/React.createElement("span", {
-    className: "cal-legend-swatch cal-bar-state-draft"
-  }), /*#__PURE__*/React.createElement("span", {
-    className: "cal-legend-label"
-  }, "Draft"), /*#__PURE__*/React.createElement("span", {
-    className: "cal-legend-swatch cal-bar-state-requested"
-  }), /*#__PURE__*/React.createElement("span", {
-    className: "cal-legend-label"
-  }, "Requested"), /*#__PURE__*/React.createElement("span", {
-    className: "cal-legend-swatch cal-bar-state-approved"
-  }), /*#__PURE__*/React.createElement("span", {
-    className: "cal-legend-label"
-  }, "Approved"), /*#__PURE__*/React.createElement("span", {
-    className: "cal-legend-swatch cal-bar-state-shipped"
-  }), /*#__PURE__*/React.createElement("span", {
-    className: "cal-legend-label"
-  }, "Shipped"), /*#__PURE__*/React.createElement("span", {
-    className: "cal-legend-swatch cal-bar-state-arrived"
-  }), /*#__PURE__*/React.createElement("span", {
-    className: "cal-legend-label"
-  }, "On site"), /*#__PURE__*/React.createElement("span", {
-    className: "cal-legend-swatch cal-bar-state-returning"
-  }), /*#__PURE__*/React.createElement("span", {
-    className: "cal-legend-label"
-  }, "Returning"), /*#__PURE__*/React.createElement("span", {
-    className: "cal-legend-swatch cal-bar-state-closed"
-  }), /*#__PURE__*/React.createElement("span", {
-    className: "cal-legend-label"
-  }, "Closed"), /*#__PURE__*/React.createElement("span", {
-    className: "cal-legend-swatch cal-bar-overdue"
-  }), /*#__PURE__*/React.createElement("span", {
-    className: "cal-legend-label"
-  }, "Overdue")));
+  })));
 }
 
 // ---------- events tab ----------
@@ -7198,6 +7205,36 @@ function App() {
   const [online, setOnline] = useState(() => typeof navigator !== 'undefined' ? navigator.onLine : true);
   const [scannerOpen, setScannerOpen] = useState(false);
   const [stocktakeOpen, setStocktakeOpen] = useState(false);
+  // Pending team-access requests count — surfaces as a badge on the
+  // ⚙ Team button so masters notice without having to open the modal.
+  const [pendingCount, setPendingCount] = useState(0);
+  useEffect(() => {
+    if (!isMaster) {
+      setPendingCount(0);
+      return;
+    }
+    let cancelled = false;
+    const refresh = () => {
+      sb.from('admin_requests').select('id', {
+        count: 'exact',
+        head: true
+      }).eq('status', 'pending').then(({
+        count
+      }) => {
+        if (!cancelled) setPendingCount(count || 0);
+      });
+    };
+    refresh();
+    const ch = sb.channel('pending-requests').on('postgres_changes', {
+      event: '*',
+      schema: 'public',
+      table: 'admin_requests'
+    }, refresh).subscribe();
+    return () => {
+      cancelled = true;
+      sb.removeChannel(ch);
+    };
+  }, [isMaster]);
 
   // Topbar scan: works from any tab. Scanned QR can be either an item
   // (master inventory) or a deployment — we look up which it is and route
@@ -7411,10 +7448,12 @@ function App() {
     onClick: () => setStocktakeOpen(true),
     title: "Stocktake \u2014 scan everything in storage to see what's missing vs. expected"
   }, "\u2611 Stocktake"), isMaster && /*#__PURE__*/React.createElement("button", {
-    className: "btn sm",
+    className: "btn sm team-btn",
     onClick: () => setManageOpen(true),
-    title: "Manage team"
-  }, "\u2699 Team"), /*#__PURE__*/React.createElement("button", {
+    title: pendingCount > 0 ? `${pendingCount} pending request${pendingCount === 1 ? '' : 's'}` : 'Manage team'
+  }, "\u2699 Team", pendingCount > 0 && /*#__PURE__*/React.createElement("span", {
+    className: "team-btn-badge"
+  }, pendingCount)), /*#__PURE__*/React.createElement("button", {
     className: "btn sm ghost",
     onClick: logout,
     title: "Sign out"

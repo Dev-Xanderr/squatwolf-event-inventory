@@ -2580,14 +2580,15 @@ function DeleteDeploymentModal({ event, eventItems, admin, onClose, onReturnAll,
         ) : (
           <>
             <div style={{fontSize:13,color:'#d4d4d4',lineHeight:1.5}}>
-              This permanently deletes the deployment, all its item assignments,
-              comments, contacts, and history. <b>This cannot be undone.</b>
-              Master-level item history and master-level photos survive.
+              This permanently deletes <b>{event.name}</b>, all its item
+              assignments, comments, contacts, and history. <b>This cannot
+              be undone.</b> Master-level item history and master-level
+              photos survive.
             </div>
             <div className="field" style={{marginTop:14}}>
               <label>Type the deployment name to confirm</label>
               <input value={typed} onChange={e=>setTyped(e.target.value)}
-                placeholder={event.name} autoFocus />
+                placeholder="Type the name above to confirm" autoFocus />
             </div>
             {err && <div className="err">{err}</div>}
             <div className="actions" style={{marginTop:6}}>
@@ -3355,6 +3356,7 @@ function EventDetail({ event, admin, onBack }) {
   const [editOpen, setEditOpen]     = useState(false);
   const [dupOpen, setDupOpen]       = useState(false);
   const [delOpen, setDelOpen]       = useState(false);
+  const [moreOpen, setMoreOpen]     = useState(false);  // overflow menu for Return all + Delete
   const [damageFor, setDamageFor]   = useState(null);  // { ei, item } when reporting damage on a row
   // Local copy of the event so edits reflect immediately without round-tripping
   // through EventsTab's list. (Parent list refreshes on next tab visit.)
@@ -3562,15 +3564,24 @@ function EventDetail({ event, admin, onBack }) {
         {eventItems.length > 0 && (
           <button className="btn sm" onClick={()=>setManifest(true)} title="Printable manifest">⎙ Manifest</button>
         )}
-        {admin && outCount > 0 && (
-          <button className="btn sm" onClick={()=>setBulkOpen(true)} title="Return all out items">↩ Return all</button>
-        )}
         {admin && <button className="btn sm" onClick={()=>setEditOpen(true)} title="Edit deployment">✎ Edit</button>}
         {admin && eventItems.length > 0 && (
           <button className="btn sm" onClick={()=>setDupOpen(true)} title="Duplicate deployment">⎘ Duplicate</button>
         )}
-        {admin?.role === 'master' && (
-          <button className="btn sm" onClick={()=>setDelOpen(true)} title="Delete deployment" style={{color:'var(--accent-bad)'}}>🗑 Delete</button>
+        {admin && (outCount > 0 || admin.role === 'master') && (
+          <div className="more-menu" onMouseLeave={()=>setMoreOpen(false)}>
+            <button className="btn sm" onClick={()=>setMoreOpen(o=>!o)} title="More actions" aria-expanded={moreOpen}>⋯ More</button>
+            {moreOpen && (
+              <div className="more-menu-pop" onClick={()=>setMoreOpen(false)}>
+                {outCount > 0 && (
+                  <button className="more-menu-item" onClick={()=>setBulkOpen(true)}>↩ Return all out items</button>
+                )}
+                {admin.role === 'master' && (
+                  <button className="more-menu-item more-menu-danger" onClick={()=>setDelOpen(true)}>🗑 Delete deployment</button>
+                )}
+              </div>
+            )}
+          </div>
         )}
         {admin && <button className="btn sm primary" onClick={()=>setAssignOpen(true)}>+ Assign</button>}
         {!admin && <LoginPrompt verb="manage" />}
@@ -4462,6 +4473,18 @@ function CalendarTab({ onOpenDeployment, onOpenItem }) {
           {winStart.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })} — {winEnd.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}
         </span>
       </div>
+      {/* Inline legend — always visible above the grid so colour meaning
+          doesn't require scrolling past 20 bars to find. */}
+      <div className="cal-legend cal-legend-inline">
+        <span className="cal-legend-swatch cal-bar-state-draft"></span><span className="cal-legend-label">Draft</span>
+        <span className="cal-legend-swatch cal-bar-state-requested"></span><span className="cal-legend-label">Requested</span>
+        <span className="cal-legend-swatch cal-bar-state-approved"></span><span className="cal-legend-label">Approved</span>
+        <span className="cal-legend-swatch cal-bar-state-shipped"></span><span className="cal-legend-label">Shipped</span>
+        <span className="cal-legend-swatch cal-bar-state-arrived"></span><span className="cal-legend-label">On site</span>
+        <span className="cal-legend-swatch cal-bar-state-returning"></span><span className="cal-legend-label">Returning</span>
+        <span className="cal-legend-swatch cal-bar-state-closed"></span><span className="cal-legend-label">Closed</span>
+        <span className="cal-legend-swatch cal-bar-overdue"></span><span className="cal-legend-label">Overdue</span>
+      </div>
 
       {rows.length === 0 ? (
         <div className="empty">{emptyText}</div>
@@ -4544,16 +4567,6 @@ function CalendarTab({ onOpenDeployment, onOpenItem }) {
         </div>
       )}
 
-      <div className="cal-legend">
-        <span className="cal-legend-swatch cal-bar-state-draft"></span><span className="cal-legend-label">Draft</span>
-        <span className="cal-legend-swatch cal-bar-state-requested"></span><span className="cal-legend-label">Requested</span>
-        <span className="cal-legend-swatch cal-bar-state-approved"></span><span className="cal-legend-label">Approved</span>
-        <span className="cal-legend-swatch cal-bar-state-shipped"></span><span className="cal-legend-label">Shipped</span>
-        <span className="cal-legend-swatch cal-bar-state-arrived"></span><span className="cal-legend-label">On site</span>
-        <span className="cal-legend-swatch cal-bar-state-returning"></span><span className="cal-legend-label">Returning</span>
-        <span className="cal-legend-swatch cal-bar-state-closed"></span><span className="cal-legend-label">Closed</span>
-        <span className="cal-legend-swatch cal-bar-overdue"></span><span className="cal-legend-label">Overdue</span>
-      </div>
     </div>
   );
 }
@@ -4884,6 +4897,22 @@ function App() {
   const [online, setOnline]           = useState(() => typeof navigator !== 'undefined' ? navigator.onLine : true);
   const [scannerOpen, setScannerOpen] = useState(false);
   const [stocktakeOpen, setStocktakeOpen] = useState(false);
+  // Pending team-access requests count — surfaces as a badge on the
+  // ⚙ Team button so masters notice without having to open the modal.
+  const [pendingCount, setPendingCount] = useState(0);
+  useEffect(() => {
+    if (!isMaster) { setPendingCount(0); return; }
+    let cancelled = false;
+    const refresh = () => {
+      sb.from('admin_requests').select('id', { count: 'exact', head: true }).eq('status', 'pending')
+        .then(({ count }) => { if (!cancelled) setPendingCount(count || 0); });
+    };
+    refresh();
+    const ch = sb.channel('pending-requests')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'admin_requests' }, refresh)
+      .subscribe();
+    return () => { cancelled = true; sb.removeChannel(ch); };
+  }, [isMaster]);
 
   // Topbar scan: works from any tab. Scanned QR can be either an item
   // (master inventory) or a deployment — we look up which it is and route
@@ -5040,7 +5069,11 @@ function App() {
             <button className="btn sm" onClick={()=>setStocktakeOpen(true)} title="Stocktake — scan everything in storage to see what's missing vs. expected">☑ Stocktake</button>
           )}
           {isMaster && (
-            <button className="btn sm" onClick={()=>setManageOpen(true)} title="Manage team">⚙ Team</button>
+            <button className="btn sm team-btn" onClick={()=>setManageOpen(true)}
+              title={pendingCount > 0 ? `${pendingCount} pending request${pendingCount===1?'':'s'}` : 'Manage team'}>
+              ⚙ Team
+              {pendingCount > 0 && <span className="team-btn-badge">{pendingCount}</span>}
+            </button>
           )}
           <button className="btn sm ghost" onClick={logout} title="Sign out">↺ Sign out</button>
         </div>
