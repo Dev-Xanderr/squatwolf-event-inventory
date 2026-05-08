@@ -4556,6 +4556,7 @@ function ItemsTab({
   const [query, setQuery] = useState('');
   const [catFilter, setCat] = useState('all');
   const [condFilter, setCond] = useState('all');
+  const [locFilter, setLoc] = useState('all');
   const [addOpen, setAddOpen] = useState(false);
   const [viewing, setViewing] = useState(null);
   const [editing, setEditing] = useState(null);
@@ -4636,6 +4637,11 @@ function ItemsTab({
     }).subscribe();
     return () => sb.removeChannel(ch);
   }, []);
+
+  // Distinct storage locations across the inventory, alphabetised.
+  // "(no location)" sentinel groups items missing a storage_location.
+  const NO_LOC = '(no location)';
+  const locOptions = Array.from(new Set(items.map(it => it.storage_location?.trim() || NO_LOC))).sort();
   const filtered = items.filter(it => {
     if (catFilter !== 'all' && it.category !== catFilter) return false;
     // Hide retired items unless the user explicitly filters for them.
@@ -4644,6 +4650,10 @@ function ItemsTab({
     } else {
       if (it.condition === 'retired') return false;
       if (condFilter !== 'all' && it.condition !== condFilter) return false;
+    }
+    if (locFilter !== 'all') {
+      const loc = it.storage_location?.trim() || NO_LOC;
+      if (loc !== locFilter) return false;
     }
     if (query && !it.name.toLowerCase().includes(query.toLowerCase()) && !(it.storage_location || '').toLowerCase().includes(query.toLowerCase())) return false;
     return true;
@@ -4667,6 +4677,15 @@ function ItemsTab({
     key: c,
     value: c
   }, c))), /*#__PURE__*/React.createElement("select", {
+    className: "filter",
+    value: locFilter,
+    onChange: e => setLoc(e.target.value)
+  }, /*#__PURE__*/React.createElement("option", {
+    value: "all"
+  }, "All locations"), locOptions.map(l => /*#__PURE__*/React.createElement("option", {
+    key: l,
+    value: l
+  }, l))), /*#__PURE__*/React.createElement("select", {
     className: "filter",
     value: condFilter,
     onChange: e => setCond(e.target.value)
@@ -4694,7 +4713,28 @@ function ItemsTab({
     title: "Bulk add from CSV"
   }, "\u2191 Import"), !admin && /*#__PURE__*/React.createElement(LoginPrompt, {
     verb: "add or edit items"
-  })), filtered.length === 0 ? /*#__PURE__*/React.createElement("div", {
+  })), locFilter !== 'all' && (() => {
+    const here = items.filter(it => (it.storage_location?.trim() || NO_LOC) === locFilter && it.condition !== 'retired');
+    const out = here.filter(it => outMap[it.id]).length;
+    const attn = here.filter(it => ['damaged', 'needs_repair', 'needs_cleaning'].includes(it.condition)).length;
+    return /*#__PURE__*/React.createElement("div", {
+      className: "loc-summary"
+    }, /*#__PURE__*/React.createElement("span", {
+      className: "loc-summary-name"
+    }, "\uD83D\uDCCD ", locFilter), /*#__PURE__*/React.createElement("span", {
+      className: "loc-summary-stat"
+    }, here.length, " items"), /*#__PURE__*/React.createElement("span", {
+      className: "loc-summary-stat",
+      style: {
+        color: out > 0 ? 'var(--accent-out)' : undefined
+      }
+    }, out, " out"), /*#__PURE__*/React.createElement("span", {
+      className: "loc-summary-stat",
+      style: {
+        color: attn > 0 ? 'var(--accent-warn)' : undefined
+      }
+    }, attn, " need attention"));
+  })(), filtered.length === 0 ? /*#__PURE__*/React.createElement("div", {
     className: "empty"
   }, items.length === 0 ? admin ? /*#__PURE__*/React.createElement("div", {
     style: {

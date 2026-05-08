@@ -1655,6 +1655,31 @@ h1, h2, h3 {
 .stat-box.alert.info { border-bottom-color: var(--accent-info); }
 .stat-box.alert.info .stat-value { color: var(--accent-info); }
 
+/* Location summary — shows when the Items tab is filtered to a specific
+   storage location. Quick glance at "what's here, what's out, what needs
+   attention" before drilling into the grid below. */
+.loc-summary {
+  display: flex; align-items: center; gap: 16px; flex-wrap: wrap;
+  background: var(--surface-1);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--accent-info);
+  border-radius: 10px;
+  padding: 8px 14px;
+  margin-bottom: 12px;
+}
+.loc-summary-name {
+  font-family: 'Manrope', sans-serif;
+  font-size: 14px; font-weight: 700;
+  color: var(--text);
+  margin-right: auto;
+}
+.loc-summary-stat {
+  font-family: 'Manrope', sans-serif;
+  font-size: 12px; font-weight: 600;
+  color: var(--text-mute, #7A7A7A);
+  letter-spacing: 0.04em;
+}
+
 /* Comments / internal notes per deployment — append-only feed below the
    items grid. Compose box is admin-only. */
 .comments-panel { margin-top: 24px; }

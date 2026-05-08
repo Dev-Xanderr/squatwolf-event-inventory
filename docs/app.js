@@ -2994,6 +2994,7 @@ function ItemsTab({ admin, openItemId, onOpened }) {
   const [query, setQuery]       = useState('');
   const [catFilter, setCat]     = useState('all');
   const [condFilter, setCond]   = useState('all');
+  const [locFilter, setLoc]     = useState('all');
   const [addOpen, setAddOpen]   = useState(false);
   const [viewing, setViewing]   = useState(null);
   const [editing, setEditing]   = useState(null);
@@ -3056,6 +3057,11 @@ function ItemsTab({ admin, openItemId, onOpened }) {
     return () => sb.removeChannel(ch);
   }, []);
 
+  // Distinct storage locations across the inventory, alphabetised.
+  // "(no location)" sentinel groups items missing a storage_location.
+  const NO_LOC = '(no location)';
+  const locOptions = Array.from(new Set(items.map(it => it.storage_location?.trim() || NO_LOC))).sort();
+
   const filtered = items.filter(it => {
     if (catFilter !== 'all' && it.category !== catFilter) return false;
     // Hide retired items unless the user explicitly filters for them.
@@ -3064,6 +3070,10 @@ function ItemsTab({ admin, openItemId, onOpened }) {
     } else {
       if (it.condition === 'retired') return false;
       if (condFilter !== 'all' && it.condition !== condFilter) return false;
+    }
+    if (locFilter !== 'all') {
+      const loc = it.storage_location?.trim() || NO_LOC;
+      if (loc !== locFilter) return false;
     }
     if (query && !it.name.toLowerCase().includes(query.toLowerCase()) &&
         !(it.storage_location||'').toLowerCase().includes(query.toLowerCase())) return false;
@@ -3077,6 +3087,10 @@ function ItemsTab({ admin, openItemId, onOpened }) {
         <select className="filter" value={catFilter} onChange={e=>setCat(e.target.value)}>
           <option value="all">All categories</option>
           {CATEGORIES.map(c=><option key={c} value={c}>{c}</option>)}
+        </select>
+        <select className="filter" value={locFilter} onChange={e=>setLoc(e.target.value)}>
+          <option value="all">All locations</option>
+          {locOptions.map(l => <option key={l} value={l}>{l}</option>)}
         </select>
         <select className="filter" value={condFilter} onChange={e=>setCond(e.target.value)}>
           <option value="all">All conditions</option>
@@ -3095,6 +3109,19 @@ function ItemsTab({ admin, openItemId, onOpened }) {
         )}
         {!admin && <LoginPrompt verb="add or edit items" />}
       </div>
+      {locFilter !== 'all' && (() => {
+        const here = items.filter(it => (it.storage_location?.trim() || NO_LOC) === locFilter && it.condition !== 'retired');
+        const out  = here.filter(it => outMap[it.id]).length;
+        const attn = here.filter(it => ['damaged','needs_repair','needs_cleaning'].includes(it.condition)).length;
+        return (
+          <div className="loc-summary">
+            <span className="loc-summary-name">📍 {locFilter}</span>
+            <span className="loc-summary-stat">{here.length} items</span>
+            <span className="loc-summary-stat" style={{color: out > 0 ? 'var(--accent-out)' : undefined}}>{out} out</span>
+            <span className="loc-summary-stat" style={{color: attn > 0 ? 'var(--accent-warn)' : undefined}}>{attn} need attention</span>
+          </div>
+        );
+      })()}
 
       {filtered.length === 0 ? (
         <div className="empty">
