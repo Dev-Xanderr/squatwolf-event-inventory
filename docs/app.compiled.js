@@ -3533,8 +3533,6 @@ function ItemsTab({
   const [viewing, setViewing] = useState(null);
   const [editing, setEditing] = useState(null);
   const [labelsOpen, setLabels] = useState(false);
-  const [scanOpen, setScanOpen] = useState(false);
-  const [scanErr, setScanErr] = useState('');
   const [importOpen, setImport] = useState(false);
   function exportCsv() {
     const headers = ['name', 'category', 'storage_location', 'condition', 'notes', 'updated_at', 'updated_by'];
@@ -3672,11 +3670,7 @@ function ItemsTab({
   }, "Retired (hidden)")), admin && /*#__PURE__*/React.createElement("button", {
     className: "btn primary",
     onClick: () => setAddOpen(true)
-  }, "+ Add item"), /*#__PURE__*/React.createElement("button", {
-    className: "btn",
-    onClick: () => setScanOpen(true),
-    title: "Scan QR"
-  }, "\u229F Scan"), admin && items.length > 0 && /*#__PURE__*/React.createElement("button", {
+  }, "+ Add item"), admin && items.length > 0 && /*#__PURE__*/React.createElement("button", {
     className: "btn",
     onClick: () => setLabels(true),
     title: "Print labels"
@@ -3690,12 +3684,7 @@ function ItemsTab({
     title: "Bulk add from CSV"
   }, "\u2191 Import"), !admin && /*#__PURE__*/React.createElement(LoginPrompt, {
     verb: "add or edit items"
-  })), scanErr && /*#__PURE__*/React.createElement("div", {
-    className: "err",
-    style: {
-      marginBottom: 8
-    }
-  }, scanErr), filtered.length === 0 ? /*#__PURE__*/React.createElement("div", {
+  })), filtered.length === 0 ? /*#__PURE__*/React.createElement("div", {
     className: "empty"
   }, items.length === 0 ? admin ? /*#__PURE__*/React.createElement("div", {
     style: {
@@ -3778,15 +3767,6 @@ function ItemsTab({
   }), labelsOpen && /*#__PURE__*/React.createElement(LabelSheet, {
     items: items,
     onClose: () => setLabels(false)
-  }), scanOpen && /*#__PURE__*/React.createElement(ScannerModal, {
-    title: "Scan item QR",
-    onClose: () => setScanOpen(false),
-    onScan: id => {
-      setScanOpen(false);
-      setScanErr('');
-      const it = items.find(x => x.id === id);
-      if (it) setViewing(it);else setScanErr('Scanned QR doesn’t match any item in inventory.');
-    }
   }), importOpen && /*#__PURE__*/React.createElement(CsvImportModal, {
     admin: admin,
     existingItems: items,
@@ -4515,6 +4495,33 @@ function App() {
   const [openEventId, setOpenEventId] = useState(null);
   const [landing, setLanding] = useState(null); // { kind: 'item'|'event', id } | null
   const [online, setOnline] = useState(() => typeof navigator !== 'undefined' ? navigator.onLine : true);
+  const [scannerOpen, setScannerOpen] = useState(false);
+
+  // Topbar scan: works from any tab. Scanned QR can be either an item
+  // (master inventory) or a deployment — we look up which it is and route
+  // to the right tab + open the appropriate detail view.
+  async function handleTopbarScan(scanned) {
+    const id = parseScanned(scanned);
+    if (!id) {
+      toast('Unrecognized QR code', 'err');
+      return;
+    }
+    setScannerOpen(false);
+    const [{
+      data: item
+    }, {
+      data: ev
+    }] = await Promise.all([sb.from('items').select('id').eq('id', id).maybeSingle(), sb.from('events').select('id').eq('id', id).maybeSingle()]);
+    if (item) {
+      setTab('items');
+      setOpenItemId(id);
+    } else if (ev) {
+      setTab('events');
+      setOpenEventId(id);
+    } else {
+      toast('Scanned QR doesn’t match any item or deployment', 'err');
+    }
+  }
   useEffect(() => {
     const on = () => {
       setOnline(true);
@@ -4693,7 +4700,11 @@ function App() {
     className: "role-pill pending"
   }, "Pending", /*#__PURE__*/React.createElement("span", {
     className: "role-name"
-  }, " \xB7 ", session.name)), isMaster && /*#__PURE__*/React.createElement("button", {
+  }, " \xB7 ", session.name)), /*#__PURE__*/React.createElement("button", {
+    className: "btn sm",
+    onClick: () => setScannerOpen(true),
+    title: "Scan QR"
+  }, "\u229F Scan"), isMaster && /*#__PURE__*/React.createElement("button", {
     className: "btn sm",
     onClick: () => setManageOpen(true),
     title: "Manage team"
@@ -4729,6 +4740,10 @@ function App() {
   }), manageOpen && isMaster && /*#__PURE__*/React.createElement(ManageTeamModal, {
     me: session,
     onClose: () => setManageOpen(false)
+  }), scannerOpen && /*#__PURE__*/React.createElement(ScannerModal, {
+    title: "Scan QR",
+    onClose: () => setScannerOpen(false),
+    onScan: handleTopbarScan
   }), /*#__PURE__*/React.createElement(ToastHost, null), /*#__PURE__*/React.createElement(ConfirmHost, null));
 }
 ReactDOM.createRoot(document.getElementById('root')).render(/*#__PURE__*/React.createElement(App, null));

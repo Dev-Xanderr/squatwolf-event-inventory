@@ -2268,8 +2268,6 @@ function ItemsTab({ admin, openItemId, onOpened }) {
   const [viewing, setViewing]   = useState(null);
   const [editing, setEditing]   = useState(null);
   const [labelsOpen, setLabels] = useState(false);
-  const [scanOpen, setScanOpen] = useState(false);
-  const [scanErr, setScanErr]   = useState('');
   const [importOpen, setImport] = useState(false);
 
   function exportCsv() {
@@ -2368,7 +2366,6 @@ function ItemsTab({ admin, openItemId, onOpened }) {
           <option value="retired">Retired (hidden)</option>
         </select>
         {admin && <button className="btn primary" onClick={()=>setAddOpen(true)}>+ Add item</button>}
-        <button className="btn" onClick={()=>setScanOpen(true)} title="Scan QR">⊟ Scan</button>
         {admin && items.length > 0 && (
           <button className="btn" onClick={()=>setLabels(true)} title="Print labels">⎙ Labels</button>
         )}
@@ -2380,7 +2377,6 @@ function ItemsTab({ admin, openItemId, onOpened }) {
         )}
         {!admin && <LoginPrompt verb="add or edit items" />}
       </div>
-      {scanErr && <div className="err" style={{marginBottom:8}}>{scanErr}</div>}
 
       {filtered.length === 0 ? (
         <div className="empty">
@@ -2454,17 +2450,6 @@ function ItemsTab({ admin, openItemId, onOpened }) {
       )}
       {labelsOpen && (
         <LabelSheet items={items} onClose={()=>setLabels(false)} />
-      )}
-      {scanOpen && (
-        <ScannerModal title="Scan item QR"
-          onClose={()=>setScanOpen(false)}
-          onScan={(id) => {
-            setScanOpen(false); setScanErr('');
-            const it = items.find(x => x.id === id);
-            if (it) setViewing(it);
-            else setScanErr('Scanned QR doesn’t match any item in inventory.');
-          }}
-        />
       )}
       {importOpen && (
         <CsvImportModal admin={admin} existingItems={items}
@@ -2996,6 +2981,23 @@ function App() {
   const [openEventId, setOpenEventId] = useState(null);
   const [landing, setLanding]         = useState(null);  // { kind: 'item'|'event', id } | null
   const [online, setOnline]           = useState(() => typeof navigator !== 'undefined' ? navigator.onLine : true);
+  const [scannerOpen, setScannerOpen] = useState(false);
+
+  // Topbar scan: works from any tab. Scanned QR can be either an item
+  // (master inventory) or a deployment — we look up which it is and route
+  // to the right tab + open the appropriate detail view.
+  async function handleTopbarScan(scanned) {
+    const id = parseScanned(scanned);
+    if (!id) { toast('Unrecognized QR code', 'err'); return; }
+    setScannerOpen(false);
+    const [{ data: item }, { data: ev }] = await Promise.all([
+      sb.from('items').select('id').eq('id', id).maybeSingle(),
+      sb.from('events').select('id').eq('id', id).maybeSingle(),
+    ]);
+    if (item)      { setTab('items');  setOpenItemId(id); }
+    else if (ev)   { setTab('events'); setOpenEventId(id); }
+    else           { toast('Scanned QR doesn’t match any item or deployment', 'err'); }
+  }
 
   useEffect(() => {
     const on  = () => { setOnline(true);  toast('Back online', 'ok'); };
@@ -3131,6 +3133,7 @@ function App() {
           {session.role === 'admin'  && <span className="role-pill admin">Admin<span className="role-name"> · {session.name}</span></span>}
           {session.role === 'viewer' && <span className="role-pill viewer">Viewer<span className="role-name"> · {session.name}</span></span>}
           {!session.role             && <span className="role-pill pending">Pending<span className="role-name"> · {session.name}</span></span>}
+          <button className="btn sm" onClick={()=>setScannerOpen(true)} title="Scan QR">⊟ Scan</button>
           {isMaster && (
             <button className="btn sm" onClick={()=>setManageOpen(true)} title="Manage team">⚙ Team</button>
           )}
@@ -3165,6 +3168,12 @@ function App() {
       {loginOpen && <AdminLoginModal onLogin={handleLogin} onClose={()=>setLoginOpen(false)} />}
       {manageOpen && isMaster && (
         <ManageTeamModal me={session} onClose={()=>setManageOpen(false)} />
+      )}
+      {scannerOpen && (
+        <ScannerModal title="Scan QR"
+          onClose={()=>setScannerOpen(false)}
+          onScan={handleTopbarScan}
+        />
       )}
       <ToastHost />
       <ConfirmHost />
