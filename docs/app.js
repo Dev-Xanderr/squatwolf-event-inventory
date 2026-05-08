@@ -59,9 +59,30 @@ function fmtDate(d) {
   if (!d) return '—';
   return new Date(d).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
 }
-// Render an event's date range as one line: "Mar 5", "Mar 5–7", "Mar 5 – Apr 2".
-// Falls back to event_date if start/end aren't populated yet (pre-migration data).
+// Render an event's date range as one line. Prefers TIMESTAMPTZ start/end
+// when present (shows "Mar 5, 10:00 — Mar 7, 22:00"), falls back to
+// DATE-only ("Mar 5–7") for pre-migration data.
 function fmtDateRange(ev) {
+  // Prefer datetimes when set
+  if (ev?.event_start_at || ev?.event_end_at) {
+    const sd = ev.event_start_at ? new Date(ev.event_start_at) : null;
+    const ed = ev.event_end_at   ? new Date(ev.event_end_at)   : null;
+    const fmtDateTime = (d) => d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
+      + ', ' + d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
+    if (sd && ed) {
+      // Same calendar day → "Mar 5 · 10:00–22:00"
+      if (sd.toDateString() === ed.toDateString()) {
+        const dayPart = sd.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+        const sTime = sd.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
+        const eTime = ed.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
+        return `${dayPart} · ${sTime}–${eTime}`;
+      }
+      return `${fmtDateTime(sd)} — ${fmtDateTime(ed)}`;
+    }
+    if (sd) return fmtDateTime(sd);
+    if (ed) return fmtDateTime(ed);
+  }
+  // Date-only fallback
   const start = ev?.event_start_date || ev?.event_date;
   const end   = ev?.event_end_date   || ev?.event_date;
   if (!start && !end) return '—';
@@ -1694,14 +1715,33 @@ function DamageReportModal({ item, eventItem, admin, onClose, onSaved }) {
 // Dual-mode: pass `event` for edit, omit for create.
 function EventFormModal({ admin, event, onClose, onSaved }) {
   const isEdit = !!event;
+  // Convert an ISO timestamp to the local-clock "YYYY-MM-DDTHH:MM" form that
+  // <input type="datetime-local"> wants. Skips the "Z" so the browser
+  // doesn't shift the displayed value into UTC.
+  const isoToLocal = (iso) => {
+    if (!iso) return '';
+    const d = new Date(iso);
+    const pad = (n) => String(n).padStart(2, '0');
+    return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  };
+  const dateToLocalDefault = (dateStr, hour) => {
+    if (!dateStr) return '';
+    return `${dateStr}T${String(hour).padStart(2,'0')}:00`;
+  };
   const [name, setName]       = useState(event?.name || '');
   const [date, setDate]       = useState(event?.event_date || '');
-  // New: explicit start/end so deployments can span days. Default end-date
-  // mirrors start so single-day events still feel like one input.
-  const [startDate, setStart] = useState(event?.event_start_date || event?.event_date || '');
-  const [endDate, setEnd]     = useState(event?.event_end_date   || event?.event_date || '');
-  const [loadInAt, setLI]     = useState(event?.load_in_at  ? event.load_in_at.slice(0, 16) : '');
-  const [loadOutAt, setLO]    = useState(event?.load_out_at ? event.load_out_at.slice(0, 16) : '');
+  // Start / end are now full datetimes. Backfill from legacy date columns
+  // (default 10:00 / 22:00 local) when an event predates this migration.
+  const [startAt, setStart]   = useState(
+    event?.event_start_at ? isoToLocal(event.event_start_at)
+    : dateToLocalDefault(event?.event_start_date || event?.event_date, 10)
+  );
+  const [endAt, setEnd]       = useState(
+    event?.event_end_at ? isoToLocal(event.event_end_at)
+    : dateToLocalDefault(event?.event_end_date || event?.event_date, 22)
+  );
+  const [loadInAt, setLI]     = useState(event?.load_in_at  ? isoToLocal(event.load_in_at)  : '');
+  const [loadOutAt, setLO]    = useState(event?.load_out_at ? isoToLocal(event.load_out_at) : '');
   const [location, setLoc]    = useState(event?.location || '');
   const [accessNotes, setAN]  = useState(event?.venue_access_notes || '');
   const [driver, setDriver]   = useState(event?.driver_name || '');
@@ -1723,14 +1763,18 @@ function EventFormModal({ admin, event, onClose, onSaved }) {
     e.preventDefault();
     if (!name.trim()) return setErr('Event name required');
     setSaving(true);
-    // Keep the legacy single event_date in sync with start so anything still
-    // reading that column (e.g. historical "Up next" sort) keeps working.
-    const legacyDate = startDate || endDate || date || null;
+    // Pull the date portion from start/end datetimes for the legacy DATE
+    // columns (so sorts / fallbacks that still read those keep working).
+    const startDateOnly = startAt ? startAt.slice(0, 10) : null;
+    const endDateOnly   = endAt   ? endAt.slice(0, 10)   : null;
+    const legacyDate = startDateOnly || endDateOnly || date || null;
     const payload = {
       name: name.trim(),
       event_date: legacyDate,
-      event_start_date: startDate || legacyDate,
-      event_end_date:   endDate   || legacyDate,
+      event_start_date: startDateOnly || legacyDate,
+      event_end_date:   endDateOnly   || legacyDate,
+      event_start_at: startAt ? new Date(startAt).toISOString() : null,
+      event_end_at:   endAt   ? new Date(endAt).toISOString()   : null,
       load_in_at:  loadInAt  ? new Date(loadInAt).toISOString()  : null,
       load_out_at: loadOutAt ? new Date(loadOutAt).toISOString() : null,
       location: location.trim(),
@@ -1760,12 +1804,24 @@ function EventFormModal({ admin, event, onClose, onSaved }) {
           <input value={name} onChange={e=>setName(e.target.value)} placeholder="e.g. Al Wasl Volleyball Tournament" autoFocus />
         </div>
         <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10}}>
-          <div className="field" style={{margin:0}}><label>Start date</label>
-            <input type="date" value={startDate}
-              onChange={e=>{ setStart(e.target.value); if (!endDate || endDate < e.target.value) setEnd(e.target.value); }} />
+          <div className="field" style={{margin:0}}><label>Starts</label>
+            <input type="datetime-local" value={startAt}
+              onChange={e=>{
+                setStart(e.target.value);
+                // If end is empty or before the new start, push it forward
+                // by 12h so single-event opens still feel like one input.
+                if (!endAt || endAt < e.target.value) {
+                  if (e.target.value) {
+                    const d = new Date(e.target.value);
+                    d.setHours(d.getHours() + 12);
+                    const pad = (n) => String(n).padStart(2,'0');
+                    setEnd(`${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`);
+                  }
+                }
+              }} />
           </div>
-          <div className="field" style={{margin:0}}><label>End date</label>
-            <input type="date" value={endDate} min={startDate || undefined}
+          <div className="field" style={{margin:0}}><label>Ends</label>
+            <input type="datetime-local" value={endAt} min={startAt || undefined}
               onChange={e=>setEnd(e.target.value)} />
           </div>
         </div>
@@ -3819,7 +3875,7 @@ function DashboardTab({ admin, onGoTo }) {
         // thumb strip + count. limit 10 — anything further out belongs in the
         // Deployments tab, not the dashboard.
         sb.from('events')
-          .select('id, name, event_date, location, departments, event_items(item_id, status, packed_at)')
+          .select('id, name, event_date, event_start_at, event_end_at, location, departments, event_items(item_id, status, packed_at)')
           .gte('event_date', todayIso)
           .order('event_date', { ascending: true })
           .limit(10),
@@ -4138,8 +4194,8 @@ function CalendarTab({ onOpenDeployment, onOpenItem }) {
     //      drifting bars by a day across timezones.
     // Both views filter / clamp client-side instead.
     const { data: evs } = await sb.from('events')
-      .select('id, name, event_date, event_start_date, event_end_date, location, workflow_state, departments, load_in_at, load_out_at')
-      .order('event_start_date', { ascending: true, nullsFirst: false });
+      .select('id, name, event_date, event_start_date, event_end_date, event_start_at, event_end_at, location, workflow_state, departments, load_in_at, load_out_at')
+      .order('event_start_at', { ascending: true, nullsFirst: false });
 
     const { data: eiRows } = await sb.from('event_items')
       .select('id, event_id, item_id, status, packed_at, expected_return_date')
@@ -4207,9 +4263,10 @@ function CalendarTab({ onOpenDeployment, onOpenItem }) {
       const ev = eventsById[ei.event_id];
       const it = items[ei.item_id];
       if (!ev || !it) return;
-      // Bar dates: prefer item-level overrides, fall back to event-level
-      const startSrc = ei.packed_at || ev.load_in_at || ev.event_start_date || ev.event_date;
-      const endSrc   = ei.expected_return_date || ev.load_out_at || ev.event_end_date || ev.event_date;
+      // Bar dates: prefer item-level overrides, fall back to event-level.
+      // Order favours the most-precise source (timestamp) at each tier.
+      const startSrc = ei.packed_at || ev.load_in_at || ev.event_start_at || ev.event_start_date || ev.event_date;
+      const endSrc   = ei.expected_return_date || ev.load_out_at || ev.event_end_at || ev.event_end_date || ev.event_date;
       if (!startSrc || !endSrc) return;
       let startD = new Date(startSrc);
       let endD   = new Date(endSrc);
@@ -4244,11 +4301,13 @@ function CalendarTab({ onOpenDeployment, onOpenItem }) {
     const outCountByEvent = {};
     eis.forEach(r => { outCountByEvent[r.event_id] = (outCountByEvent[r.event_id] || 0) + 1; });
     const decorated = events.map(ev => {
-      const start = ev.event_start_date || ev.event_date;
-      const end   = ev.event_end_date   || ev.event_date || start;
-      if (!start) return null;
-      const startD = new Date(start + 'T00:00:00');
-      const endD   = new Date(end   + 'T00:00:00');
+      // Prefer timestamps; fall back to dates parsed at local midnight so
+      // the comparison with winStart/winEnd (also local midnight) is honest.
+      const startSrc = ev.event_start_at || ev.event_start_date || ev.event_date;
+      const endSrc   = ev.event_end_at   || ev.event_end_date   || ev.event_date || startSrc;
+      if (!startSrc) return null;
+      const startD = ev.event_start_at ? new Date(startSrc) : new Date(startSrc + 'T00:00:00');
+      const endD   = ev.event_end_at   ? new Date(endSrc)   : new Date(endSrc   + 'T00:00:00');
       const itemsStillOut = outCountByEvent[ev.id] || 0;
       const overdue = endD.getTime() < today.getTime() && itemsStillOut > 0;
       // Show only events whose range intersects the visible window —
