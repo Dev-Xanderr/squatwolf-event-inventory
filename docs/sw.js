@@ -1,12 +1,12 @@
 // SQUATWOLF Event Inventory — service worker
 // Cache strategy: stale-while-revalidate for static + CDN; bypass Supabase.
 
-const CACHE = 'eit-v7';
+const CACHE = 'eit-v8';
 
 const PRECACHE = [
   './',
   './index.html',
-  './app.js',
+  './app.compiled.js',
   './styles.css',
   './manifest.webmanifest',
   './icon.svg',
