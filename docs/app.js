@@ -1800,6 +1800,11 @@ function EventFormModal({ admin, event, onClose, onSaved }) {
     <div className="backdrop" onClick={onClose}>
       <form className="modal" style={{maxWidth:480}} onClick={e=>e.stopPropagation()} onSubmit={save}>
         <h2>{isEdit ? 'Edit deployment' : 'New deployment'}</h2>
+        {!isEdit && (
+          <div style={{fontSize:12,color:'#9a9a9a',marginTop:-6,marginBottom:14,letterSpacing:'0.02em',lineHeight:1.5}}>
+            A deployment bundles the items, logistics, and approvals for one event activation.
+          </div>
+        )}
         <div className="field"><label>Event name</label>
           <input value={name} onChange={e=>setName(e.target.value)} placeholder="e.g. Al Wasl Volleyball Tournament" autoFocus />
         </div>
@@ -1829,6 +1834,9 @@ function EventFormModal({ admin, event, onClose, onSaved }) {
           <input value={location} onChange={e=>setLoc(e.target.value)} placeholder="e.g. Al Wasl Sports Club" />
         </div>
         <div className="field"><label>Departments involved</label>
+          <div style={{fontSize:11,color:'#7A7A7A',marginTop:-2,marginBottom:6,letterSpacing:'0.02em'}}>
+            Tap to tag teams that need visibility — they'll see this deployment surfaced in their workflows.
+          </div>
           <div className="dept-chips">
             {DEPARTMENTS.map(d => (
               <button type="button" key={d}
@@ -1875,7 +1883,7 @@ function EventFormModal({ admin, event, onClose, onSaved }) {
         <div className="actions">
           <button type="button" className="btn ghost" onClick={onClose}>Cancel</button>
           <button type="submit" className="btn primary" disabled={saving}>
-            {saving ? (isEdit ? 'Saving…' : 'Creating…') : (isEdit ? 'Save changes' : 'Create event')}
+            {saving ? (isEdit ? 'Saving…' : 'Creating…') : (isEdit ? 'Save changes' : 'Create deployment')}
           </button>
         </div>
       </form>
@@ -1988,7 +1996,7 @@ function WorkflowTracker({ event, admin, isMaster, onAdvance }) {
             <div className="workflow-locked">
               {WORKFLOW_STATES[idx]?.gate === 'master'
                 ? 'Awaiting master approval'
-                : 'Sign in as admin to advance'}
+                : 'Read-only access — only Admins can advance this'}
             </div>
           )}
           {state === 'requested' && isMaster && (
@@ -2321,7 +2329,7 @@ function CommentsPanel({ event, admin, viewerName }) {
           </button>
         </form>
       ) : (
-        <div style={{fontSize:11,color:'#7A7A7A',padding:'8px 0 0'}}>Sign in as admin to post notes.</div>
+        <div style={{fontSize:11,color:'#7A7A7A',padding:'8px 0 0'}}>Notes are admin-only — ask a master to bump your role to post.</div>
       )}
     </div>
   );
@@ -3553,7 +3561,7 @@ function EventDetail({ event, admin, onBack }) {
                       </button>
                     )}
                     {admin && ei.status === 'out' && (
-                      <button className="btn sm" onClick={()=>setDamageFor({ ei, item: it })} title="Report damage">🛠</button>
+                      <button className="btn sm" onClick={()=>setDamageFor({ ei, item: it })} title="Report damage">🛠 Damage</button>
                     )}
                     {admin && ei.status !== 'returned' && (
                       <button className="btn sm" onClick={()=>setUpdating(ei)}>Update</button>
@@ -3572,7 +3580,9 @@ function EventDetail({ event, admin, onBack }) {
         </div>{/* /.deploy-main */}
 
         <aside className="deploy-sidebar">
-          <WorkflowTracker event={currentEvent} admin={admin} isMaster={admin?.role === 'master'} onAdvance={setWorkflow} />
+          <WorkflowTracker event={currentEvent} admin={admin}
+            isMaster={admin?.role === 'master'}
+            onAdvance={setWorkflow} />
           <LogisticsPanel event={currentEvent} admin={admin} onEdit={()=>setEditOpen(true)} />
           <ContactsPanel event={currentEvent} admin={admin} />
         </aside>
@@ -4710,6 +4720,28 @@ function ViewerWelcomeBanner({ userId }) {
   );
 }
 
+// ---------- admin welcome banner ----------
+// One-time, per-user, dismissible orientation card for new Admins. Closes
+// the cold-start gap that the UX audit flagged: viewers had a banner,
+// admins didn't, so a brand-new admin landed on the dashboard with no idea
+// where to start.
+function AdminWelcomeBanner({ userId, isMaster }) {
+  const key = `eit:admin-welcome:${userId}`;
+  const [show, setShow] = useState(() => !localStorage.getItem(key));
+  if (!show) return null;
+  function dismiss() { localStorage.setItem(key, '1'); setShow(false); }
+  return (
+    <div className="viewer-welcome admin-welcome">
+      <div className="viewer-welcome-body">
+        <strong>You're set up as {isMaster ? 'a Master' : 'an Admin'}.</strong>{' '}
+        Items live in the <b>Items</b> tab — that's the master inventory of every physical asset. <b>Deployments</b> bundle items, logistics, and approvals for one event activation. The <b>Calendar</b> shows what's out and when it's coming back. Tap <b>+ New deployment</b> in the Deployments tab to get started.
+        {isMaster && <> You also approve requests submitted by other admins via the workflow tracker on each deployment.</>}
+      </div>
+      <button className="viewer-welcome-x" onClick={dismiss} aria-label="Dismiss">✕</button>
+    </div>
+  );
+}
+
 // ---------- main app ----------
 function App() {
   // session: any signed-in user (admin OR pending). admin: only approved roles.
@@ -4882,14 +4914,14 @@ function App() {
           {session.role === 'admin'  && <span className="role-pill admin">Admin<span className="role-name"> · {session.name}</span></span>}
           {session.role === 'viewer' && <span className="role-pill viewer">Viewer<span className="role-name"> · {session.name}</span></span>}
           {!session.role             && <span className="role-pill pending">Pending<span className="role-name"> · {session.name}</span></span>}
-          <button className="btn sm" onClick={()=>setScannerOpen(true)} title="Scan QR">⊟ Scan</button>
+          <button className="btn sm" onClick={()=>setScannerOpen(true)} title="Scan a QR code to open that item or deployment">⊟ Scan QR</button>
           {admin && (
-            <button className="btn sm" onClick={()=>setStocktakeOpen(true)} title="Stocktake — verify what's in storage">☑ Stocktake</button>
+            <button className="btn sm" onClick={()=>setStocktakeOpen(true)} title="Stocktake — scan everything in storage to see what's missing vs. expected">☑ Stocktake</button>
           )}
           {isMaster && (
             <button className="btn sm" onClick={()=>setManageOpen(true)} title="Manage team">⚙ Team</button>
           )}
-          <button className="btn sm ghost" onClick={logout} title="Log out">↺</button>
+          <button className="btn sm ghost" onClick={logout} title="Sign out">↺ Sign out</button>
         </div>
       </div>
       {!online && (
@@ -4903,6 +4935,7 @@ function App() {
         </div>
       )}
       {isViewer && <ViewerWelcomeBanner userId={session.id} />}
+      {admin && <AdminWelcomeBanner userId={session.id} isMaster={isMaster} />}
 
       {/* tabs */}
       <div className="tabs">

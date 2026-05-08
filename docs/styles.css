@@ -185,6 +185,14 @@ h1, h2, h3 {
 }
 .viewer-welcome-x:hover { color: #FAFAFA; }
 
+/* Admin variant — info-tone instead of green so the two banners are visually
+   distinct when both could (in theory) ever appear. */
+.viewer-welcome.admin-welcome {
+  background: rgba(90, 175, 212, 0.08);
+  border-bottom-color: rgba(90, 175, 212, 0.3);
+}
+.viewer-welcome.admin-welcome .viewer-welcome-body strong { color: var(--accent-info); }
+
 /* Offline banner — sits between topbar and content when no connection */
 .offline-banner {
   background: rgba(232, 112, 112, 0.10);

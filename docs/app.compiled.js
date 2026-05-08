@@ -2770,7 +2770,16 @@ function EventFormModal({
     },
     onClick: e => e.stopPropagation(),
     onSubmit: save
-  }, /*#__PURE__*/React.createElement("h2", null, isEdit ? 'Edit deployment' : 'New deployment'), /*#__PURE__*/React.createElement("div", {
+  }, /*#__PURE__*/React.createElement("h2", null, isEdit ? 'Edit deployment' : 'New deployment'), !isEdit && /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 12,
+      color: '#9a9a9a',
+      marginTop: -6,
+      marginBottom: 14,
+      letterSpacing: '0.02em',
+      lineHeight: 1.5
+    }
+  }, "A deployment bundles the items, logistics, and approvals for one event activation."), /*#__PURE__*/React.createElement("div", {
     className: "field"
   }, /*#__PURE__*/React.createElement("label", null, "Event name"), /*#__PURE__*/React.createElement("input", {
     value: name,
@@ -2823,6 +2832,14 @@ function EventFormModal({
   })), /*#__PURE__*/React.createElement("div", {
     className: "field"
   }, /*#__PURE__*/React.createElement("label", null, "Departments involved"), /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 11,
+      color: '#7A7A7A',
+      marginTop: -2,
+      marginBottom: 6,
+      letterSpacing: '0.02em'
+    }
+  }, "Tap to tag teams that need visibility \u2014 they'll see this deployment surfaced in their workflows."), /*#__PURE__*/React.createElement("div", {
     className: "dept-chips"
   }, DEPARTMENTS.map(d => /*#__PURE__*/React.createElement("button", {
     type: "button",
@@ -2931,7 +2948,7 @@ function EventFormModal({
     type: "submit",
     className: "btn primary",
     disabled: saving
-  }, saving ? isEdit ? 'Saving…' : 'Creating…' : isEdit ? 'Save changes' : 'Create event'))));
+  }, saving ? isEdit ? 'Saving…' : 'Creating…' : isEdit ? 'Save changes' : 'Create deployment'))));
 }
 
 // ---------- send-back banner ----------
@@ -3071,7 +3088,7 @@ function WorkflowTracker({
     })
   }, cta.label, " \u2192"), cta && !canActOnCurrent && /*#__PURE__*/React.createElement("div", {
     className: "workflow-locked"
-  }, WORKFLOW_STATES[idx]?.gate === 'master' ? 'Awaiting master approval' : 'Sign in as admin to advance'), state === 'requested' && isMaster && /*#__PURE__*/React.createElement("button", {
+  }, WORKFLOW_STATES[idx]?.gate === 'master' ? 'Awaiting master approval' : 'Read-only access — only Admins can advance this'), state === 'requested' && isMaster && /*#__PURE__*/React.createElement("button", {
     type: "button",
     className: "btn ghost sm",
     onClick: sendBack,
@@ -3542,7 +3559,7 @@ function CommentsPanel({
       color: '#7A7A7A',
       padding: '8px 0 0'
     }
-  }, "Sign in as admin to post notes."));
+  }, "Notes are admin-only \u2014 ask a master to bump your role to post."));
 }
 
 // ---------- preflight banner ----------
@@ -5400,7 +5417,7 @@ function EventDetail({
         item: it
       }),
       title: "Report damage"
-    }, "\uD83D\uDEE0"), admin && ei.status !== 'returned' && /*#__PURE__*/React.createElement("button", {
+    }, "\uD83D\uDEE0 Damage"), admin && ei.status !== 'returned' && /*#__PURE__*/React.createElement("button", {
       className: "btn sm",
       onClick: () => setUpdating(ei)
     }, "Update"), admin && ei.status === 'returned' && /*#__PURE__*/React.createElement("button", {
@@ -6934,6 +6951,33 @@ function ViewerWelcomeBanner({
   }, "\u2715"));
 }
 
+// ---------- admin welcome banner ----------
+// One-time, per-user, dismissible orientation card for new Admins. Closes
+// the cold-start gap that the UX audit flagged: viewers had a banner,
+// admins didn't, so a brand-new admin landed on the dashboard with no idea
+// where to start.
+function AdminWelcomeBanner({
+  userId,
+  isMaster
+}) {
+  const key = `eit:admin-welcome:${userId}`;
+  const [show, setShow] = useState(() => !localStorage.getItem(key));
+  if (!show) return null;
+  function dismiss() {
+    localStorage.setItem(key, '1');
+    setShow(false);
+  }
+  return /*#__PURE__*/React.createElement("div", {
+    className: "viewer-welcome admin-welcome"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "viewer-welcome-body"
+  }, /*#__PURE__*/React.createElement("strong", null, "You're set up as ", isMaster ? 'a Master' : 'an Admin', "."), ' ', "Items live in the ", /*#__PURE__*/React.createElement("b", null, "Items"), " tab \u2014 that's the master inventory of every physical asset. ", /*#__PURE__*/React.createElement("b", null, "Deployments"), " bundle items, logistics, and approvals for one event activation. The ", /*#__PURE__*/React.createElement("b", null, "Calendar"), " shows what's out and when it's coming back. Tap ", /*#__PURE__*/React.createElement("b", null, "+ New deployment"), " in the Deployments tab to get started.", isMaster && /*#__PURE__*/React.createElement(React.Fragment, null, " You also approve requests submitted by other admins via the workflow tracker on each deployment.")), /*#__PURE__*/React.createElement("button", {
+    className: "viewer-welcome-x",
+    onClick: dismiss,
+    "aria-label": "Dismiss"
+  }, "\u2715"));
+}
+
 // ---------- main app ----------
 function App() {
   // session: any signed-in user (admin OR pending). admin: only approved roles.
@@ -7165,11 +7209,11 @@ function App() {
   }, " \xB7 ", session.name)), /*#__PURE__*/React.createElement("button", {
     className: "btn sm",
     onClick: () => setScannerOpen(true),
-    title: "Scan QR"
-  }, "\u229F Scan"), admin && /*#__PURE__*/React.createElement("button", {
+    title: "Scan a QR code to open that item or deployment"
+  }, "\u229F Scan QR"), admin && /*#__PURE__*/React.createElement("button", {
     className: "btn sm",
     onClick: () => setStocktakeOpen(true),
-    title: "Stocktake \u2014 verify what's in storage"
+    title: "Stocktake \u2014 scan everything in storage to see what's missing vs. expected"
   }, "\u2611 Stocktake"), isMaster && /*#__PURE__*/React.createElement("button", {
     className: "btn sm",
     onClick: () => setManageOpen(true),
@@ -7177,13 +7221,16 @@ function App() {
   }, "\u2699 Team"), /*#__PURE__*/React.createElement("button", {
     className: "btn sm ghost",
     onClick: logout,
-    title: "Log out"
-  }, "\u21BA"))), !online && /*#__PURE__*/React.createElement("div", {
+    title: "Sign out"
+  }, "\u21BA Sign out"))), !online && /*#__PURE__*/React.createElement("div", {
     className: "offline-banner"
   }, "\u25CF Offline \u2014 changes won't save until you reconnect."), isPending && /*#__PURE__*/React.createElement("div", {
     className: "pending-banner"
   }, "Your access is pending approval. You can browse the inventory but can't edit yet."), isViewer && /*#__PURE__*/React.createElement(ViewerWelcomeBanner, {
     userId: session.id
+  }), admin && /*#__PURE__*/React.createElement(AdminWelcomeBanner, {
+    userId: session.id,
+    isMaster: isMaster
   }), /*#__PURE__*/React.createElement("div", {
     className: "tabs"
   }, [['dashboard', 'Dashboard'], ['items', 'Items'], ['events', 'Deployments'], ['calendar', 'Calendar']].map(([key, label]) => /*#__PURE__*/React.createElement("button", {
