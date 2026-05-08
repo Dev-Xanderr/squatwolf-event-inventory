@@ -2873,6 +2873,46 @@ function EventFormModal({
   }, saving ? isEdit ? 'Saving…' : 'Creating…' : isEdit ? 'Save changes' : 'Create event'))));
 }
 
+// ---------- send-back banner ----------
+// Shown on draft deployments only. Pulls the most recent comment that starts
+// with the "↶ Sent back:" prefix (written by setWorkflow when a master rejects
+// a request) and surfaces it as a red banner so the requester sees the reason
+// on first page load instead of having to ping master on WhatsApp.
+function SendBackBanner({
+  event
+}) {
+  const [comment, setComment] = useState(null);
+  useEffect(() => {
+    if (event.workflow_state !== 'draft') {
+      setComment(null);
+      return;
+    }
+    sb.from('event_comments').select('*').eq('event_id', event.id).like('body', '↶ Sent back:%').order('created_at', {
+      ascending: false
+    }).limit(1).then(({
+      data
+    }) => setComment(data?.[0] || null));
+  }, [event.id, event.workflow_state]);
+  if (!comment) return null;
+  // Only show if the send-back happened AFTER the most recent revision —
+  // i.e. comment.created_at > workflow_updated_at when state went to 'draft'.
+  if (event.workflow_updated_at && new Date(comment.created_at) < new Date(event.workflow_updated_at) - 1000) return null;
+  const reason = comment.body.replace(/^↶ Sent back:\s*/, '');
+  return /*#__PURE__*/React.createElement("div", {
+    className: "send-back-banner"
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "send-back-icon"
+  }, "\u21B6"), /*#__PURE__*/React.createElement("div", {
+    className: "send-back-body"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "send-back-head"
+  }, "Sent back for revision"), /*#__PURE__*/React.createElement("div", {
+    className: "send-back-text"
+  }, reason), /*#__PURE__*/React.createElement("div", {
+    className: "send-back-meta"
+  }, "\u2014 ", comment.author_name, " \xB7 ", fmtTime(comment.created_at))));
+}
+
 // ---------- workflow tracker ----------
 // Vertical step list shown in the deployment sidebar. Past stages are checked
 // off, the current stage shows the action button for the next transition,
@@ -2980,6 +3020,77 @@ function WorkflowTracker({
   }, "Send back for revision")), state === 'closed' && /*#__PURE__*/React.createElement("div", {
     className: "workflow-closed"
   }, "Deployment closed \xB7 ", fmtTime(event.workflow_updated_at)));
+}
+
+// ---------- logistics panel (sidebar) ----------
+// Renders load-in / load-out times, driver, vehicle plate, and venue access
+// notes. Empty states are admin-only "Add" prompts. Editing routes through
+// the existing EventFormModal (Logistics & access section auto-expands when
+// any logistics field is already set).
+function LogisticsPanel({
+  event,
+  admin,
+  onEdit
+}) {
+  const hasAny = !!(event.load_in_at || event.load_out_at || event.driver_name || event.vehicle_plate || event.venue_access_notes);
+  const fmtLoad = iso => {
+    if (!iso) return null;
+    const d = new Date(iso);
+    return d.toLocaleString(undefined, {
+      month: 'short',
+      day: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit'
+    });
+  };
+  return /*#__PURE__*/React.createElement("div", {
+    className: "sidebar-card"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "sidebar-card-head"
+  }, /*#__PURE__*/React.createElement("span", null, "Logistics"), admin && /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    className: "link-btn",
+    onClick: onEdit
+  }, hasAny ? 'Edit' : '+ Add')), !hasAny ? /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 11,
+      color: '#7A7A7A',
+      padding: '4px 0',
+      letterSpacing: '0.04em'
+    }
+  }, admin ? 'No load-in time, driver, or access notes yet.' : 'No logistics info yet.') : /*#__PURE__*/React.createElement("div", {
+    className: "logistics-grid"
+  }, event.load_in_at && /*#__PURE__*/React.createElement("div", {
+    className: "logistics-row"
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "logistics-key"
+  }, "Load-in"), /*#__PURE__*/React.createElement("span", {
+    className: "logistics-val"
+  }, fmtLoad(event.load_in_at))), event.load_out_at && /*#__PURE__*/React.createElement("div", {
+    className: "logistics-row"
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "logistics-key"
+  }, "Load-out"), /*#__PURE__*/React.createElement("span", {
+    className: "logistics-val"
+  }, fmtLoad(event.load_out_at))), event.driver_name && /*#__PURE__*/React.createElement("div", {
+    className: "logistics-row"
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "logistics-key"
+  }, "Driver"), /*#__PURE__*/React.createElement("span", {
+    className: "logistics-val"
+  }, event.driver_name)), event.vehicle_plate && /*#__PURE__*/React.createElement("div", {
+    className: "logistics-row"
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "logistics-key"
+  }, "Vehicle"), /*#__PURE__*/React.createElement("span", {
+    className: "logistics-val"
+  }, event.vehicle_plate)), event.venue_access_notes && /*#__PURE__*/React.createElement("div", {
+    className: "logistics-notes"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "logistics-notes-head"
+  }, "Access notes"), /*#__PURE__*/React.createElement("div", {
+    className: "logistics-notes-body"
+  }, event.venue_access_notes))));
 }
 
 // ---------- contacts panel (sidebar) ----------
@@ -4782,9 +4893,22 @@ function EventDetail({
 
   // Advance / regress / send-back the deployment's workflow_state. Each
   // transition logs to history so the timeline records the full lifecycle.
+  // Send-back additionally requires a reason — that drops a comment in
+  // event_comments tagged with a "Sent back:" prefix so the requester sees
+  // it as a banner on the draft.
   async function setWorkflow(nextState, opts = {}) {
     if (!admin) return;
     const fromState = currentEvent.workflow_state || 'approved';
+
+    // Send-back: prompt for reason. Required — silent send-backs were the
+    // top user-pain Pragmatist surfaced (admins refresh, see "draft", have
+    // no idea why, ping master on WhatsApp).
+    let reason = opts.reason;
+    if (opts.kind === 'send_back' && !reason) {
+      reason = window.prompt('Why are you sending this back? The requester will see this on the draft.');
+      if (!reason || !reason.trim()) return; // cancelled or empty
+      reason = reason.trim();
+    }
     const now = new Date().toISOString();
     const patch = {
       workflow_state: nextState,
@@ -4808,11 +4932,23 @@ function EventDetail({
         changes: {
           from: fromState,
           to: nextState,
-          note: opts.note || null
+          note: reason || opts.note || null
         },
         changed_by: admin.name,
         changed_at: now
       });
+      // Drop the reason as a comment so the requester sees it as a banner.
+      if (opts.kind === 'send_back' && reason) {
+        const {
+          data: sess
+        } = await sb.auth.getUser();
+        await sb.from('event_comments').insert({
+          event_id: currentEvent.id,
+          body: `↶ Sent back: ${reason}`,
+          author_id: sess?.user?.id || null,
+          author_name: admin.name
+        });
+      }
       toast(opts.toast || `Moved to ${nextState}`, 'ok');
     } catch (e) {
       toast(`Couldn't update workflow: ${friendlyError(e)}`, 'err');
@@ -4923,7 +5059,9 @@ function EventDetail({
     className: "container deploy-layout"
   }, /*#__PURE__*/React.createElement("div", {
     className: "deploy-main"
-  }, /*#__PURE__*/React.createElement(PreflightBanner, {
+  }, /*#__PURE__*/React.createElement(SendBackBanner, {
+    event: currentEvent
+  }), /*#__PURE__*/React.createElement(PreflightBanner, {
     event: currentEvent,
     eventItems: eventItems,
     items: items
@@ -5099,6 +5237,10 @@ function EventDetail({
     admin: admin,
     isMaster: admin?.role === 'master',
     onAdvance: setWorkflow
+  }), /*#__PURE__*/React.createElement(LogisticsPanel, {
+    event: currentEvent,
+    admin: admin,
+    onEdit: () => setEditOpen(true)
   }), /*#__PURE__*/React.createElement(ContactsPanel, {
     event: currentEvent,
     admin: admin

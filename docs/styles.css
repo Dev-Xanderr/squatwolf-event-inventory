@@ -1843,6 +1843,81 @@ h1, h2, h3 {
   padding: 8px 0;
 }
 
+/* Logistics card inside the sidebar — load-in/out, driver, vehicle, access */
+.logistics-grid { display: flex; flex-direction: column; gap: 6px; }
+.logistics-row {
+  display: flex; gap: 10px; align-items: baseline;
+  font-family: 'Manrope', sans-serif; font-size: 12px;
+}
+.logistics-key {
+  flex: none; width: 70px;
+  color: var(--text-mute, #7A7A7A);
+  font-size: 10px; font-weight: 700; letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.logistics-val {
+  flex: 1; min-width: 0;
+  color: var(--text);
+  font-weight: 600;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.logistics-notes {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+}
+.logistics-notes-head {
+  color: var(--text-mute, #7A7A7A);
+  font-family: 'Manrope', sans-serif;
+  font-size: 10px; font-weight: 700; letter-spacing: 0.06em;
+  text-transform: uppercase;
+  margin-bottom: 4px;
+}
+.logistics-notes-body {
+  font-family: 'Manrope', sans-serif;
+  font-size: 12px;
+  color: var(--text);
+  line-height: 1.4;
+  white-space: pre-wrap; word-break: break-word;
+}
+
+/* Send-back banner — shown on draft deployments when there's a pending
+   "↶ Sent back: <reason>" comment from the master. */
+.send-back-banner {
+  display: flex; gap: 12px;
+  background: var(--accent-bad-bg);
+  border: 1px solid var(--accent-bad-bd);
+  border-left: 3px solid var(--accent-bad);
+  border-radius: 12px;
+  padding: 10px 14px;
+  margin-bottom: 12px;
+}
+.send-back-icon {
+  flex: none;
+  font-size: 18px; font-weight: 800;
+  color: var(--accent-bad);
+  line-height: 1.2;
+}
+.send-back-body { min-width: 0; flex: 1; }
+.send-back-head {
+  font-family: 'Manrope', sans-serif;
+  font-size: 12px; font-weight: 700; letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--accent-bad);
+  margin-bottom: 2px;
+}
+.send-back-text {
+  font-family: 'Manrope', sans-serif;
+  font-size: 14px; color: var(--text);
+  line-height: 1.4;
+  white-space: pre-wrap; word-break: break-word;
+}
+.send-back-meta {
+  font-family: 'Manrope', sans-serif;
+  font-size: 11px; color: var(--text-mute, #7A7A7A);
+  margin-top: 4px; letter-spacing: 0.04em;
+}
+
 /* Contacts list inside the sidebar */
 .contact-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
 .contact {
