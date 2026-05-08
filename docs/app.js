@@ -2141,8 +2141,10 @@ function EventDetail({ event, admin, onBack }) {
   const filtered = eventItems.filter(ei => {
     const it = items[ei.item_id];
     if (!it) return false;
-    if (filter === 'out' && ei.status !== 'out') return false;
-    if (filter === 'returned' && ei.status !== 'returned') return false;
+    if (filter === 'out'        && ei.status !== 'out') return false;
+    if (filter === 'returned'   && ei.status !== 'returned') return false;
+    if (filter === 'packed'     && (ei.status !== 'out' || !ei.packed_at)) return false;
+    if (filter === 'not_packed' && (ei.status !== 'out' || ei.packed_at))  return false;
     if (query && !it.name.toLowerCase().includes(query.toLowerCase()) &&
         !(ei.current_location||'').toLowerCase().includes(query.toLowerCase())) return false;
     return true;
@@ -2150,6 +2152,33 @@ function EventDetail({ event, admin, onBack }) {
 
   const outCount      = eventItems.filter(ei=>ei.status==='out').length;
   const returnedCount = eventItems.filter(ei=>ei.status==='returned').length;
+  // "Packed" only counts items still on the deployment (not yet returned).
+  const packedCount   = eventItems.filter(ei=>ei.status==='out' && ei.packed_at).length;
+
+  // Toggle the pack-list flag on a single event_item. Optimistic update +
+  // history insert so the timeline reflects the checkpoint.
+  async function togglePacked(ei) {
+    if (!admin) return;
+    const now = new Date().toISOString();
+    const becomingPacked = !ei.packed_at;
+    const patch = becomingPacked
+      ? { packed_at: now, packed_by: admin.name, updated_at: now, updated_by: admin.name }
+      : { packed_at: null, packed_by: null, updated_at: now, updated_by: admin.name };
+    setEventItems(prev => prev.map(x => x.id === ei.id ? { ...x, ...patch } : x));
+    try {
+      const { error } = await sb.from('event_items').update(patch).eq('id', ei.id);
+      if (error) throw error;
+      await sb.from('history').insert({
+        item_id: ei.item_id, event_item_id: ei.id, event_id: event.id,
+        action: becomingPacked ? 'packed' : 'unpacked',
+        changes: { note: becomingPacked ? `Marked packed for ${event.name}` : `Marked not packed for ${event.name}` },
+        changed_by: admin.name, changed_at: now,
+      });
+    } catch (e) {
+      toast(`Couldn't update pack status: ${friendlyError(e)}`, 'err');
+      load();  // rollback by refetching
+    }
+  }
 
   return (
     <div>
@@ -2185,6 +2214,10 @@ function EventDetail({ event, admin, onBack }) {
             <div className="stat-label">Total</div>
           </div>
           <div className="stat-box">
+            <div className="stat-value" style={{color:'#5aafd4'}}>{packedCount}{outCount > 0 && <span style={{fontSize:14,color:'#7A7A7A',fontWeight:500}}> / {outCount}</span>}</div>
+            <div className="stat-label">Packed</div>
+          </div>
+          <div className="stat-box">
             <div className="stat-value" style={{color:'#d4a534'}}>{outCount}</div>
             <div className="stat-label">Out</div>
           </div>
@@ -2199,6 +2232,8 @@ function EventDetail({ event, admin, onBack }) {
           <select className="filter" value={filter} onChange={e=>setFilter(e.target.value)}>
             <option value="all">All</option>
             <option value="out">Out</option>
+            <option value="packed">Packed</option>
+            <option value="not_packed">Not packed</option>
             <option value="returned">Returned</option>
           </select>
         </div>
@@ -2219,8 +2254,11 @@ function EventDetail({ event, admin, onBack }) {
                 <div className={cardClass} key={ei.id}>
                   <div className="row">
                     <div className="name">{it.name}</div>
-                    <div style={{display:'flex',gap:6,alignItems:'center'}}>
+                    <div style={{display:'flex',gap:6,alignItems:'center',flexWrap:'wrap'}}>
                       <span className={`badge ${ei.condition}`}>{CLABEL[ei.condition]}</span>
+                      {ei.status === 'out' && ei.packed_at && (
+                        <span className="badge status-packed">Packed</span>
+                      )}
                       <span className={`badge ${ei.status==='returned'?'status-returned':'status-out'}`}>
                         {ei.status==='returned'?'Returned':'Out'}
                       </span>
@@ -2244,8 +2282,15 @@ function EventDetail({ event, admin, onBack }) {
                     <QuickConditionRow ei={ei} admin={admin} onChanged={load} />
                   )}
                   <div className="actions">
+                    {admin && ei.status === 'out' && (
+                      <button className={`btn sm${ei.packed_at ? '' : ' primary'}`}
+                        onClick={()=>togglePacked(ei)}
+                        title={ei.packed_at ? 'Mark not packed' : 'Mark as packed'}>
+                        {ei.packed_at ? '↶ Unpack' : '✓ Pack'}
+                      </button>
+                    )}
                     {admin && ei.status !== 'returned' && (
-                      <button className="btn sm primary" onClick={()=>setUpdating(ei)}>Update</button>
+                      <button className="btn sm" onClick={()=>setUpdating(ei)}>Update</button>
                     )}
                     {admin && ei.status === 'returned' && (
                       <button className="btn sm" onClick={()=>setUpdating(ei)}>View</button>
@@ -2506,7 +2551,7 @@ function DashboardTab({ admin, onGoTo }) {
         // thumb strip + count. limit 10 — anything further out belongs in the
         // Deployments tab, not the dashboard.
         sb.from('events')
-          .select('id, name, event_date, location, event_items(item_id, status)')
+          .select('id, name, event_date, location, event_items(item_id, status, packed_at)')
           .gte('event_date', todayIso)
           .order('event_date', { ascending: true })
           .limit(10),
@@ -2731,6 +2776,11 @@ function UpcomingCard({ ev, itemMap, thumbs, onOpen }) {
   const itemCount = eis.length;
   const stripItems = eis.slice(0, 5).map(ei => itemMap[ei.item_id]).filter(Boolean);
   const overflow = Math.max(0, itemCount - stripItems.length);
+  // Pack progress — only counts assignments still on the deployment, not returned ones
+  const onDeploy = eis.filter(ei => ei.status !== 'returned');
+  const packed   = onDeploy.filter(ei => ei.packed_at).length;
+  const packPct  = onDeploy.length === 0 ? 0 : Math.round((packed / onDeploy.length) * 100);
+  const allPacked = onDeploy.length > 0 && packed === onDeploy.length;
 
   return (
     <div className="upcoming-card clickable" onClick={onOpen}>
@@ -2748,6 +2798,14 @@ function UpcomingCard({ ev, itemMap, thumbs, onOpen }) {
           {' · '}
           {itemCount === 0 ? 'No items assigned yet' : `${itemCount} item${itemCount === 1 ? '' : 's'}`}
         </div>
+        {onDeploy.length > 0 && (
+          <div className={`pack-progress${allPacked ? ' done' : ''}`} title={`${packed} of ${onDeploy.length} packed`}>
+            <div className="pack-progress-bar"><div className="pack-progress-fill" style={{width: packPct + '%'}} /></div>
+            <div className="pack-progress-label">
+              {allPacked ? 'All packed' : `Packed ${packed} / ${onDeploy.length}`}
+            </div>
+          </div>
+        )}
         {stripItems.length > 0 && (
           <div className="upcoming-strip">
             {stripItems.map((it, i) => (
