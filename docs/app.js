@@ -5131,6 +5131,37 @@ function App() {
     return () => { cancelled = true; sb.removeChannel(ch); };
   }, [isMaster]);
 
+  // Workflow notifications — toast when someone ELSE advances / sends back /
+  // rolls back a deployment's workflow state. Closes the loop where admins
+  // had to refresh to find out master had acted on their request.
+  // Only admins+ get notified (viewers don't act on workflow so noise is
+  // mostly irrelevant to them). Self-changes are suppressed by name match.
+  useEffect(() => {
+    if (!admin) return;
+    const ch = sb.channel(`notif-workflow-${admin.id || admin.name}`)
+      .on('postgres_changes',
+        { event: 'INSERT', schema: 'public', table: 'history' },
+        async ({ new: row }) => {
+          if (!row.action?.startsWith('workflow_')) return;
+          if (row.changed_by === admin.name) return;  // don't toast your own actions
+          // Pull event name for the toast — keep payload small.
+          const { data: ev } = await sb.from('events').select('name').eq('id', row.event_id).maybeSingle();
+          if (!ev) return;
+          const toState = row.changes?.to;
+          let msg;
+          if (row.action === 'workflow_sent_back') {
+            msg = `↶ "${ev.name}" sent back by ${row.changed_by}`;
+          } else if (row.action === 'workflow_rolled_back') {
+            msg = `↶ "${ev.name}" rolled back to ${toState} by ${row.changed_by}`;
+          } else {
+            msg = `✓ "${ev.name}" → ${toState} by ${row.changed_by}`;
+          }
+          toast(msg, row.action === 'workflow_sent_back' ? 'err' : 'ok');
+        })
+      .subscribe();
+    return () => sb.removeChannel(ch);
+  }, [admin?.id, admin?.name]);
+
   // Topbar scan: works from any tab. Scanned QR can be either an item
   // (master inventory) or a deployment — we look up which it is and route
   // to the right tab + open the appropriate detail view.
