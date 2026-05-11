@@ -2365,6 +2365,136 @@ function ContactFormModal({ admin, event, contact, onClose, onSaved }) {
   );
 }
 
+// ---------- deployment activity feed ----------
+// Chronological log of every system event scoped to this deployment.
+// Reads from the history table (which we've been writing to all along —
+// pack/unpack, workflow transitions, condition changes, damage, returns,
+// assignments). Mounts at the bottom of EventDetail above Comments so
+// you can see "what happened" before adding to "what people said."
+//
+// Distinct from Comments: this is auto-collected and read-only; Comments
+// are human-authored.
+function ActivityFeed({ event }) {
+  const [rows, setRows] = useState(null);
+  const [showAll, setShowAll] = useState(false);
+
+  async function load() {
+    const { data } = await sb.from('history')
+      .select('*, items(name)')
+      .eq('event_id', event.id)
+      .order('changed_at', { ascending: false })
+      .limit(100);
+    setRows(data || []);
+  }
+  useEffect(() => { load(); }, [event.id]);
+
+  useEffect(() => {
+    const ch = sb.channel(`activity-${event.id}`)
+      .on('postgres_changes',
+        { event: '*', schema: 'public', table: 'history', filter: `event_id=eq.${event.id}` },
+        load)
+      .subscribe();
+    return () => sb.removeChannel(ch);
+  }, [event.id]);
+
+  if (rows === null) {
+    return (
+      <div className="activity-panel">
+        <div className="section-label" style={{marginTop:0}}>Activity</div>
+        <div style={{fontSize:11,color:'#7A7A7A',padding:'4px 0'}}>Loading…</div>
+      </div>
+    );
+  }
+  if (rows.length === 0) {
+    return (
+      <div className="activity-panel">
+        <div className="section-label" style={{marginTop:0}}>Activity</div>
+        <div style={{fontSize:11,color:'#7A7A7A',padding:'4px 0',letterSpacing:'0.04em'}}>
+          No activity yet — actions you take here appear in this feed.
+        </div>
+      </div>
+    );
+  }
+
+  const visible = showAll ? rows : rows.slice(0, 12);
+  return (
+    <div className="activity-panel">
+      <div className="section-label" style={{marginTop:0}}>Activity ({rows.length})</div>
+      <ol className="activity-list">
+        {visible.map(r => <ActivityRow key={r.id} row={r} />)}
+      </ol>
+      {!showAll && rows.length > 12 && (
+        <button type="button" className="link-btn" onClick={()=>setShowAll(true)}
+          style={{marginTop:8}}>
+          Show all {rows.length} entries →
+        </button>
+      )}
+    </div>
+  );
+}
+
+// Maps an action to {icon, tone} for visual category scanning.
+// Tone is one of: workflow / item / condition / photo / damage / return / pack
+function activityVisual(action) {
+  if (action?.startsWith('workflow_')) return { icon: '⚙', tone: 'workflow' };
+  if (action === 'assigned')           return { icon: '+', tone: 'item' };
+  if (action === 'returned')           return { icon: '↩', tone: 'return' };
+  if (action === 'packed')             return { icon: '✓', tone: 'pack' };
+  if (action === 'unpacked')           return { icon: '↶', tone: 'pack' };
+  if (action === 'damage_reported')    return { icon: '🛠', tone: 'damage' };
+  if (action === 'condition_changed')  return { icon: '◆', tone: 'condition' };
+  if (action === 'repaired')           return { icon: '✓', tone: 'condition' };
+  if (action === 'retired')            return { icon: '○', tone: 'condition' };
+  if (action === 'photo_added')        return { icon: '📷', tone: 'photo' };
+  if (action === 'photo_removed')      return { icon: '✕', tone: 'photo' };
+  if (action === 'item_created' || action === 'item_updated' || action === 'item_deleted')
+                                       return { icon: '◇', tone: 'item' };
+  if (action === 'location_updated' || action === 'notes_updated')
+                                       return { icon: '✎', tone: 'item' };
+  return { icon: '●', tone: 'item' };
+}
+
+function ActivityRow({ row }) {
+  const { icon, tone } = activityVisual(row.action);
+  const itemName = row.items?.name;
+  const changes = row.changes || {};
+
+  // Render the body — action-specific so the most-relevant detail comes first
+  let body;
+  if (row.action === 'workflow_advanced' || row.action === 'workflow_rolled_back') {
+    body = <span>Workflow: <b>{changes.from || '—'}</b> → <b>{changes.to || '—'}</b></span>;
+  } else if (row.action === 'workflow_sent_back') {
+    body = <span>Sent back to draft{changes.note ? <>: <i>"{changes.note}"</i></> : null}</span>;
+  } else if (row.action === 'condition_changed' && changes.condition) {
+    const c = changes.condition;
+    body = <span>{itemName ? <><b>{itemName}</b> · </> : null}condition: <b>{CLABEL[c.from]||c.from}</b> → <b>{CLABEL[c.to]||c.to}</b></span>;
+  } else if (row.action === 'damage_reported') {
+    body = <span><b>{itemName || 'Item'}</b> · damage reported{changes.condition?.to ? <> ({CLABEL[changes.condition.to]||changes.condition.to})</> : null}{changes.note ? <>: <i>"{changes.note}"</i></> : null}</span>;
+  } else if (row.action === 'packed') {
+    body = <span><b>{itemName || 'Item'}</b> marked packed</span>;
+  } else if (row.action === 'unpacked') {
+    body = <span><b>{itemName || 'Item'}</b> marked not packed</span>;
+  } else if (row.action === 'returned') {
+    body = <span><b>{itemName || 'Item'}</b> returned</span>;
+  } else if (row.action === 'assigned') {
+    body = <span><b>{itemName || 'Item'}</b> assigned to deployment</span>;
+  } else if (row.action === 'location_updated' && changes.current_location) {
+    body = <span><b>{itemName || 'Item'}</b> · location → {changes.current_location.to || changes.current_location}</span>;
+  } else {
+    body = <span>{actionLabel(row.action)}{itemName ? <> · <b>{itemName}</b></> : null}{changes.note ? <>: <i>{changes.note}</i></> : null}</span>;
+  }
+
+  return (
+    <li className={`activity-row activity-tone-${tone}`}>
+      <div className="activity-icon">{icon}</div>
+      <div className="activity-body">
+        <div className="activity-text">{body}</div>
+        <div className="activity-meta">{row.changed_by || '—'} · {fmtTime(row.changed_at)}</div>
+      </div>
+    </li>
+  );
+}
+
 // ---------- deployment comments / internal notes ----------
 // Append-only feed per deployment. All signed-in users can read; admins post.
 // Realtime channel pushes new comments to every open client.
@@ -3719,6 +3849,7 @@ function EventDetail({ event, admin, onBack }) {
           </div>
         )}
 
+        <ActivityFeed event={currentEvent} />
         <CommentsPanel event={currentEvent} admin={admin} viewerName={admin?.name || ''} />
         </div>{/* /.deploy-main */}
 

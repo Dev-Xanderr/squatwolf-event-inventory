@@ -1688,6 +1688,50 @@ h1, h2, h3 {
   letter-spacing: 0.04em;
 }
 
+/* Activity feed — auto-collected log of every system event scoped to this
+   deployment. Sits above Comments. Visually quieter than Comments — small
+   icons + thin rows so it can hold dozens of entries without dominating. */
+.activity-panel { margin-top: 24px; }
+.activity-list { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; }
+.activity-row {
+  display: flex; gap: 10px; align-items: flex-start;
+  padding: 6px 0;
+  border-bottom: 1px dashed var(--border);
+}
+.activity-row:last-child { border-bottom: 0; }
+.activity-icon {
+  flex: none;
+  width: 22px; height: 22px;
+  border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 11px; font-weight: 800;
+  background: var(--surface-2, #161616);
+  border: 1px solid var(--border);
+  color: var(--text-mute, #9a9a9a);
+}
+.activity-body { flex: 1; min-width: 0; }
+.activity-text {
+  font-family: 'Manrope', sans-serif;
+  font-size: 12px; line-height: 1.45;
+  color: var(--text);
+  word-break: break-word;
+}
+.activity-text i { color: var(--text-mute, #9a9a9a); font-style: italic; }
+.activity-meta {
+  font-family: 'Manrope', sans-serif;
+  font-size: 10px; color: var(--text-mute, #7A7A7A);
+  margin-top: 1px; letter-spacing: 0.04em;
+}
+
+/* Tone variants — coloured icon by category for quick visual scanning */
+.activity-tone-workflow  .activity-icon { background: var(--accent-info-bg);  border-color: var(--accent-info-bd);  color: var(--accent-info); }
+.activity-tone-item      .activity-icon { background: var(--surface-2, #161616); border-color: var(--border); color: var(--text-mute, #9a9a9a); }
+.activity-tone-condition .activity-icon { background: var(--accent-warn-bg);  border-color: var(--accent-warn-bd);  color: var(--accent-warn); }
+.activity-tone-damage    .activity-icon { background: var(--accent-bad-bg);   border-color: var(--accent-bad-bd);   color: var(--accent-bad); }
+.activity-tone-photo     .activity-icon { background: var(--accent-info-bg);  border-color: var(--accent-info-bd);  color: var(--accent-info); }
+.activity-tone-return    .activity-icon { background: var(--accent-good-bg);  border-color: var(--accent-good-bd);  color: var(--accent-good); }
+.activity-tone-pack      .activity-icon { background: var(--accent-info-bg);  border-color: var(--accent-info-bd);  color: var(--accent-info); }
+
 /* Comments / internal notes per deployment — append-only feed below the
    items grid. Compose box is admin-only. */
 .comments-panel { margin-top: 24px; }

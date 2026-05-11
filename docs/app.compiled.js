@@ -3617,6 +3617,203 @@ function ContactFormModal({
   }, saving ? 'Saving…' : isEdit ? 'Save' : 'Add')))));
 }
 
+// ---------- deployment activity feed ----------
+// Chronological log of every system event scoped to this deployment.
+// Reads from the history table (which we've been writing to all along —
+// pack/unpack, workflow transitions, condition changes, damage, returns,
+// assignments). Mounts at the bottom of EventDetail above Comments so
+// you can see "what happened" before adding to "what people said."
+//
+// Distinct from Comments: this is auto-collected and read-only; Comments
+// are human-authored.
+function ActivityFeed({
+  event
+}) {
+  const [rows, setRows] = useState(null);
+  const [showAll, setShowAll] = useState(false);
+  async function load() {
+    const {
+      data
+    } = await sb.from('history').select('*, items(name)').eq('event_id', event.id).order('changed_at', {
+      ascending: false
+    }).limit(100);
+    setRows(data || []);
+  }
+  useEffect(() => {
+    load();
+  }, [event.id]);
+  useEffect(() => {
+    const ch = sb.channel(`activity-${event.id}`).on('postgres_changes', {
+      event: '*',
+      schema: 'public',
+      table: 'history',
+      filter: `event_id=eq.${event.id}`
+    }, load).subscribe();
+    return () => sb.removeChannel(ch);
+  }, [event.id]);
+  if (rows === null) {
+    return /*#__PURE__*/React.createElement("div", {
+      className: "activity-panel"
+    }, /*#__PURE__*/React.createElement("div", {
+      className: "section-label",
+      style: {
+        marginTop: 0
+      }
+    }, "Activity"), /*#__PURE__*/React.createElement("div", {
+      style: {
+        fontSize: 11,
+        color: '#7A7A7A',
+        padding: '4px 0'
+      }
+    }, "Loading\u2026"));
+  }
+  if (rows.length === 0) {
+    return /*#__PURE__*/React.createElement("div", {
+      className: "activity-panel"
+    }, /*#__PURE__*/React.createElement("div", {
+      className: "section-label",
+      style: {
+        marginTop: 0
+      }
+    }, "Activity"), /*#__PURE__*/React.createElement("div", {
+      style: {
+        fontSize: 11,
+        color: '#7A7A7A',
+        padding: '4px 0',
+        letterSpacing: '0.04em'
+      }
+    }, "No activity yet \u2014 actions you take here appear in this feed."));
+  }
+  const visible = showAll ? rows : rows.slice(0, 12);
+  return /*#__PURE__*/React.createElement("div", {
+    className: "activity-panel"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "section-label",
+    style: {
+      marginTop: 0
+    }
+  }, "Activity (", rows.length, ")"), /*#__PURE__*/React.createElement("ol", {
+    className: "activity-list"
+  }, visible.map(r => /*#__PURE__*/React.createElement(ActivityRow, {
+    key: r.id,
+    row: r
+  }))), !showAll && rows.length > 12 && /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    className: "link-btn",
+    onClick: () => setShowAll(true),
+    style: {
+      marginTop: 8
+    }
+  }, "Show all ", rows.length, " entries \u2192"));
+}
+
+// Maps an action to {icon, tone} for visual category scanning.
+// Tone is one of: workflow / item / condition / photo / damage / return / pack
+function activityVisual(action) {
+  if (action?.startsWith('workflow_')) return {
+    icon: '⚙',
+    tone: 'workflow'
+  };
+  if (action === 'assigned') return {
+    icon: '+',
+    tone: 'item'
+  };
+  if (action === 'returned') return {
+    icon: '↩',
+    tone: 'return'
+  };
+  if (action === 'packed') return {
+    icon: '✓',
+    tone: 'pack'
+  };
+  if (action === 'unpacked') return {
+    icon: '↶',
+    tone: 'pack'
+  };
+  if (action === 'damage_reported') return {
+    icon: '🛠',
+    tone: 'damage'
+  };
+  if (action === 'condition_changed') return {
+    icon: '◆',
+    tone: 'condition'
+  };
+  if (action === 'repaired') return {
+    icon: '✓',
+    tone: 'condition'
+  };
+  if (action === 'retired') return {
+    icon: '○',
+    tone: 'condition'
+  };
+  if (action === 'photo_added') return {
+    icon: '📷',
+    tone: 'photo'
+  };
+  if (action === 'photo_removed') return {
+    icon: '✕',
+    tone: 'photo'
+  };
+  if (action === 'item_created' || action === 'item_updated' || action === 'item_deleted') return {
+    icon: '◇',
+    tone: 'item'
+  };
+  if (action === 'location_updated' || action === 'notes_updated') return {
+    icon: '✎',
+    tone: 'item'
+  };
+  return {
+    icon: '●',
+    tone: 'item'
+  };
+}
+function ActivityRow({
+  row
+}) {
+  const {
+    icon,
+    tone
+  } = activityVisual(row.action);
+  const itemName = row.items?.name;
+  const changes = row.changes || {};
+
+  // Render the body — action-specific so the most-relevant detail comes first
+  let body;
+  if (row.action === 'workflow_advanced' || row.action === 'workflow_rolled_back') {
+    body = /*#__PURE__*/React.createElement("span", null, "Workflow: ", /*#__PURE__*/React.createElement("b", null, changes.from || '—'), " \u2192 ", /*#__PURE__*/React.createElement("b", null, changes.to || '—'));
+  } else if (row.action === 'workflow_sent_back') {
+    body = /*#__PURE__*/React.createElement("span", null, "Sent back to draft", changes.note ? /*#__PURE__*/React.createElement(React.Fragment, null, ": ", /*#__PURE__*/React.createElement("i", null, "\"", changes.note, "\"")) : null);
+  } else if (row.action === 'condition_changed' && changes.condition) {
+    const c = changes.condition;
+    body = /*#__PURE__*/React.createElement("span", null, itemName ? /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("b", null, itemName), " \xB7 ") : null, "condition: ", /*#__PURE__*/React.createElement("b", null, CLABEL[c.from] || c.from), " \u2192 ", /*#__PURE__*/React.createElement("b", null, CLABEL[c.to] || c.to));
+  } else if (row.action === 'damage_reported') {
+    body = /*#__PURE__*/React.createElement("span", null, /*#__PURE__*/React.createElement("b", null, itemName || 'Item'), " \xB7 damage reported", changes.condition?.to ? /*#__PURE__*/React.createElement(React.Fragment, null, " (", CLABEL[changes.condition.to] || changes.condition.to, ")") : null, changes.note ? /*#__PURE__*/React.createElement(React.Fragment, null, ": ", /*#__PURE__*/React.createElement("i", null, "\"", changes.note, "\"")) : null);
+  } else if (row.action === 'packed') {
+    body = /*#__PURE__*/React.createElement("span", null, /*#__PURE__*/React.createElement("b", null, itemName || 'Item'), " marked packed");
+  } else if (row.action === 'unpacked') {
+    body = /*#__PURE__*/React.createElement("span", null, /*#__PURE__*/React.createElement("b", null, itemName || 'Item'), " marked not packed");
+  } else if (row.action === 'returned') {
+    body = /*#__PURE__*/React.createElement("span", null, /*#__PURE__*/React.createElement("b", null, itemName || 'Item'), " returned");
+  } else if (row.action === 'assigned') {
+    body = /*#__PURE__*/React.createElement("span", null, /*#__PURE__*/React.createElement("b", null, itemName || 'Item'), " assigned to deployment");
+  } else if (row.action === 'location_updated' && changes.current_location) {
+    body = /*#__PURE__*/React.createElement("span", null, /*#__PURE__*/React.createElement("b", null, itemName || 'Item'), " \xB7 location \u2192 ", changes.current_location.to || changes.current_location);
+  } else {
+    body = /*#__PURE__*/React.createElement("span", null, actionLabel(row.action), itemName ? /*#__PURE__*/React.createElement(React.Fragment, null, " \xB7 ", /*#__PURE__*/React.createElement("b", null, itemName)) : null, changes.note ? /*#__PURE__*/React.createElement(React.Fragment, null, ": ", /*#__PURE__*/React.createElement("i", null, changes.note)) : null);
+  }
+  return /*#__PURE__*/React.createElement("li", {
+    className: `activity-row activity-tone-${tone}`
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "activity-icon"
+  }, icon), /*#__PURE__*/React.createElement("div", {
+    className: "activity-body"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "activity-text"
+  }, body), /*#__PURE__*/React.createElement("div", {
+    className: "activity-meta"
+  }, row.changed_by || '—', " \xB7 ", fmtTime(row.changed_at))));
+}
+
 // ---------- deployment comments / internal notes ----------
 // Append-only feed per deployment. All signed-in users can read; admins post.
 // Realtime channel pushes new comments to every open client.
@@ -5631,7 +5828,9 @@ function EventDetail({
       className: "btn sm",
       onClick: () => setUpdating(ei)
     }, "View")));
-  })), /*#__PURE__*/React.createElement(CommentsPanel, {
+  })), /*#__PURE__*/React.createElement(ActivityFeed, {
+    event: currentEvent
+  }), /*#__PURE__*/React.createElement(CommentsPanel, {
     event: currentEvent,
     admin: admin,
     viewerName: admin?.name || ''
