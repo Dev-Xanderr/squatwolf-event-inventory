@@ -3023,6 +3023,16 @@ function UpdateEventItemModal({ eventItem, item, admin, onClose, onSaved }) {
   const [location, setLocation]   = useState(eventItem.current_location || '');
   const [condition, setCondition] = useState(eventItem.condition || item?.condition || 'good');
   const [notes, setNotes]         = useState(eventItem.notes || '');
+  // Per-item expected-return override. Lets a single item diverge from the
+  // deployment's load-out timeline (going to repair, next event, etc.).
+  // Default is empty — calendar falls back to event-level dates when blank.
+  const isoToLocal = (iso) => {
+    if (!iso) return '';
+    const d = new Date(iso);
+    const pad = (n) => String(n).padStart(2, '0');
+    return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  };
+  const [expectedReturn, setExpectedReturn] = useState(isoToLocal(eventItem.expected_return_date));
   const [returning, setReturning]   = useState(false);
   const [retCondition, setRetCond]  = useState(eventItem.condition || 'good');
   const [retLocation, setRetLoc]    = useState(item?.storage_location || '');
@@ -3035,6 +3045,7 @@ function UpdateEventItemModal({ eventItem, item, admin, onClose, onSaved }) {
     const now = new Date().toISOString();
     try {
       const payload = { current_location: location.trim(), condition, notes: notes.trim(),
+        expected_return_date: expectedReturn ? new Date(expectedReturn).toISOString() : null,
         updated_at: now, updated_by: admin.name };
 
       if (returning) {
@@ -3092,6 +3103,12 @@ function UpdateEventItemModal({ eventItem, item, admin, onClose, onSaved }) {
             <select value={condition} onChange={e=>setCondition(e.target.value)}>
               {CONDITIONS.map(c=><option key={c.value} value={c.value}>{c.label}</option>)}
             </select>
+          </div>
+          <div className="field"><label>Expected return (optional override)</label>
+            <input type="datetime-local" value={expectedReturn} onChange={e=>setExpectedReturn(e.target.value)} />
+            <div style={{fontSize:11,color:'#7A7A7A',marginTop:4,letterSpacing:'0.02em'}}>
+              Leave blank to inherit the deployment's load-out time. Set when this item diverges — going to repair, next event, or staying out longer.
+            </div>
           </div>
           <div className="field"><label>Notes</label>
             <textarea value={notes} onChange={e=>setNotes(e.target.value)} placeholder="Anything relevant" />
@@ -3812,6 +3829,12 @@ function EventDetail({ event, admin, onBack }) {
                     {ei.status !== 'returned' && <><span className="k">Location</span><span className="v">{ei.current_location||'—'}</span></>}
                     <span className="k">Storage</span><span className="v">{it.storage_location||'—'}</span>
                     <span className="k">Assigned by</span><span className="v">{ei.assigned_by||'—'}</span>
+                    {!ei.returned_at && ei.expected_return_date && (
+                      <>
+                        <span className="k">Back by</span>
+                        <span className="v" style={{color:'var(--accent-info)'}}>{fmtTime(ei.expected_return_date)} <span style={{fontSize:10,opacity:0.7,letterSpacing:'0.04em'}}>· OVERRIDE</span></span>
+                      </>
+                    )}
                     {ei.returned_at && <>
                       <span className="k">Return date</span><span className="v">{fmtTime(ei.returned_at)}</span>
                       <span className="k">Returned to</span><span className="v">{ei.current_location||'—'}</span>

@@ -4580,6 +4580,16 @@ function UpdateEventItemModal({
   const [location, setLocation] = useState(eventItem.current_location || '');
   const [condition, setCondition] = useState(eventItem.condition || item?.condition || 'good');
   const [notes, setNotes] = useState(eventItem.notes || '');
+  // Per-item expected-return override. Lets a single item diverge from the
+  // deployment's load-out timeline (going to repair, next event, etc.).
+  // Default is empty — calendar falls back to event-level dates when blank.
+  const isoToLocal = iso => {
+    if (!iso) return '';
+    const d = new Date(iso);
+    const pad = n => String(n).padStart(2, '0');
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  };
+  const [expectedReturn, setExpectedReturn] = useState(isoToLocal(eventItem.expected_return_date));
   const [returning, setReturning] = useState(false);
   const [retCondition, setRetCond] = useState(eventItem.condition || 'good');
   const [retLocation, setRetLoc] = useState(item?.storage_location || '');
@@ -4596,6 +4606,7 @@ function UpdateEventItemModal({
         current_location: location.trim(),
         condition,
         notes: notes.trim(),
+        expected_return_date: expectedReturn ? new Date(expectedReturn).toISOString() : null,
         updated_at: now,
         updated_by: admin.name
       };
@@ -4680,6 +4691,19 @@ function UpdateEventItemModal({
     key: c.value,
     value: c.value
   }, c.label)))), /*#__PURE__*/React.createElement("div", {
+    className: "field"
+  }, /*#__PURE__*/React.createElement("label", null, "Expected return (optional override)"), /*#__PURE__*/React.createElement("input", {
+    type: "datetime-local",
+    value: expectedReturn,
+    onChange: e => setExpectedReturn(e.target.value)
+  }), /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 11,
+      color: '#7A7A7A',
+      marginTop: 4,
+      letterSpacing: '0.02em'
+    }
+  }, "Leave blank to inherit the deployment's load-out time. Set when this item diverges \u2014 going to repair, next event, or staying out longer.")), /*#__PURE__*/React.createElement("div", {
     className: "field"
   }, /*#__PURE__*/React.createElement("label", null, "Notes"), /*#__PURE__*/React.createElement("textarea", {
     value: notes,
@@ -5778,7 +5802,20 @@ function EventDetail({
       className: "k"
     }, "Assigned by"), /*#__PURE__*/React.createElement("span", {
       className: "v"
-    }, ei.assigned_by || '—'), ei.returned_at && /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("span", {
+    }, ei.assigned_by || '—'), !ei.returned_at && ei.expected_return_date && /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("span", {
+      className: "k"
+    }, "Back by"), /*#__PURE__*/React.createElement("span", {
+      className: "v",
+      style: {
+        color: 'var(--accent-info)'
+      }
+    }, fmtTime(ei.expected_return_date), " ", /*#__PURE__*/React.createElement("span", {
+      style: {
+        fontSize: 10,
+        opacity: 0.7,
+        letterSpacing: '0.04em'
+      }
+    }, "\xB7 OVERRIDE"))), ei.returned_at && /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("span", {
       className: "k"
     }, "Return date"), /*#__PURE__*/React.createElement("span", {
       className: "v"
