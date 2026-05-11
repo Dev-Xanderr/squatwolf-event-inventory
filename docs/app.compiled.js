@@ -6577,6 +6577,7 @@ function CalendarTab({
   // 'deployment': one row per event, single bar spanning event_start → end.
   //   Useful for the high-level "what's happening this fortnight" view.
   const [view, setView] = useState('item');
+  const [deptFilter, setDept] = useState('all');
   const [events, setEvents] = useState(null);
   const [eis, setEis] = useState([]);
   const [items, setItems] = useState({});
@@ -6671,6 +6672,8 @@ function CalendarTab({
   }
 
   // ── Compute rows for the active view ───────────────────────────────────────
+  // Department filter applies to both views — narrows the event set first.
+  const eventsForView = deptFilter === 'all' ? events : events.filter(ev => (ev.departments || []).includes(deptFilter));
   let rows = [];
   let emptyText = '';
   if (view === 'item') {
@@ -6679,7 +6682,7 @@ function CalendarTab({
     // per item are possible (rare — same item assigned to two events) but
     // supported.
     const eventsById = {};
-    events.forEach(ev => {
+    eventsForView.forEach(ev => {
       eventsById[ev.id] = ev;
     });
     const byItem = {};
@@ -6735,7 +6738,7 @@ function CalendarTab({
     eis.forEach(r => {
       outCountByEvent[r.event_id] = (outCountByEvent[r.event_id] || 0) + 1;
     });
-    const decorated = events.map(ev => {
+    const decorated = eventsForView.map(ev => {
       // Prefer timestamps; fall back to dates parsed at local midnight so
       // the comparison with winStart/winEnd (also local midnight) is honest.
       const startSrc = ev.event_start_at || ev.event_start_date || ev.event_date;
@@ -6778,7 +6781,16 @@ function CalendarTab({
     type: "button",
     className: view === 'deployment' ? 'on' : '',
     onClick: () => setView('deployment')
-  }, "By deployment")), /*#__PURE__*/React.createElement("button", {
+  }, "By deployment")), /*#__PURE__*/React.createElement("select", {
+    className: "filter",
+    value: deptFilter,
+    onChange: e => setDept(e.target.value)
+  }, /*#__PURE__*/React.createElement("option", {
+    value: "all"
+  }, "All departments"), DEPARTMENTS.map(d => /*#__PURE__*/React.createElement("option", {
+    key: d,
+    value: d
+  }, d))), /*#__PURE__*/React.createElement("button", {
     className: "btn sm",
     onClick: () => shift(-14)
   }, "\u2190 Earlier"), /*#__PURE__*/React.createElement("button", {
@@ -6936,6 +6948,9 @@ function EventsTab({
   const [events, setEvents] = useState([]);
   const [selected, setSelected] = useState(null);
   const [newOpen, setNewOpen] = useState(false);
+  const [deptFilter, setDept] = useState('all'); // 'all' | DEPARTMENTS[n]
+  const [wfFilter, setWf] = useState('all'); // 'all' | workflow state
+
   useEffect(() => {
     sb.from('events').select('*').order('event_date', {
       ascending: false,
@@ -6944,6 +6959,31 @@ function EventsTab({
       data
     }) => setEvents(data || []));
   }, []);
+
+  // Realtime so the list reflects edits / new deployments / state changes
+  // without forcing the user to refresh
+  useEffect(() => {
+    const ch = sb.channel('events-list').on('postgres_changes', {
+      event: '*',
+      schema: 'public',
+      table: 'events'
+    }, ({
+      eventType,
+      new: n,
+      old: o
+    }) => {
+      if (eventType === 'INSERT') setEvents(prev => [n, ...prev]);else if (eventType === 'UPDATE') setEvents(prev => prev.map(p => p.id === n.id ? n : p));else if (eventType === 'DELETE') setEvents(prev => prev.filter(p => p.id !== o.id));
+    }).subscribe();
+    return () => sb.removeChannel(ch);
+  }, []);
+
+  // Filter the list by department + workflow state. Departments live as a
+  // TEXT[] column on events; "all" means no filter.
+  const filtered = events.filter(ev => {
+    if (deptFilter !== 'all' && !(ev.departments || []).includes(deptFilter)) return false;
+    if (wfFilter !== 'all' && (ev.workflow_state || 'approved') !== wfFilter) return false;
+    return true;
+  });
 
   // open by id (deep-link)
   useEffect(() => {
@@ -6964,25 +7004,49 @@ function EventsTab({
   return /*#__PURE__*/React.createElement("div", {
     className: "container"
   }, /*#__PURE__*/React.createElement("div", {
+    className: "controls",
     style: {
-      marginBottom: 12,
-      display: 'flex',
-      gap: 8,
-      alignItems: 'center'
+      marginBottom: 12
     }
   }, admin ? /*#__PURE__*/React.createElement("button", {
     className: "btn primary",
     onClick: () => setNewOpen(true)
   }, "+ New deployment") : /*#__PURE__*/React.createElement(LoginPrompt, {
     verb: "create deployments"
-  })), events.length === 0 ? /*#__PURE__*/React.createElement("div", {
+  }), /*#__PURE__*/React.createElement("select", {
+    className: "filter",
+    value: deptFilter,
+    onChange: e => setDept(e.target.value)
+  }, /*#__PURE__*/React.createElement("option", {
+    value: "all"
+  }, "All departments"), DEPARTMENTS.map(d => /*#__PURE__*/React.createElement("option", {
+    key: d,
+    value: d
+  }, d))), /*#__PURE__*/React.createElement("select", {
+    className: "filter",
+    value: wfFilter,
+    onChange: e => setWf(e.target.value)
+  }, /*#__PURE__*/React.createElement("option", {
+    value: "all"
+  }, "All states"), WORKFLOW_STATES.map(s => /*#__PURE__*/React.createElement("option", {
+    key: s.v,
+    value: s.v
+  }, s.label)))), events.length === 0 ? /*#__PURE__*/React.createElement("div", {
     className: "empty"
   }, admin ? /*#__PURE__*/React.createElement(React.Fragment, null, "No deployments yet. ", /*#__PURE__*/React.createElement("button", {
     className: "link-btn",
     onClick: () => setNewOpen(true)
-  }, "Create one \u2192")) : 'No deployments yet.') : /*#__PURE__*/React.createElement("div", {
+  }, "Create one \u2192")) : 'No deployments yet.') : filtered.length === 0 ? /*#__PURE__*/React.createElement("div", {
+    className: "empty"
+  }, "No deployments match your filters.", ' ', /*#__PURE__*/React.createElement("button", {
+    className: "link-btn",
+    onClick: () => {
+      setDept('all');
+      setWf('all');
+    }
+  }, "Clear filters \u2192")) : /*#__PURE__*/React.createElement("div", {
     className: "items"
-  }, events.map(ev => {
+  }, filtered.map(ev => {
     const wf = ev.workflow_state || 'approved';
     const wfLabel = WORKFLOW_STATES.find(s => s.v === wf)?.label || wf;
     return /*#__PURE__*/React.createElement("div", {

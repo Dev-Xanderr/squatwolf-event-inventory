@@ -4458,10 +4458,11 @@ function CalendarTab({ onOpenDeployment, onOpenItem }) {
   //   Answers "where's my mannequin and when do I get it back?".
   // 'deployment': one row per event, single bar spanning event_start → end.
   //   Useful for the high-level "what's happening this fortnight" view.
-  const [view,    setView]    = useState('item');
-  const [events,  setEvents]  = useState(null);
-  const [eis,     setEis]     = useState([]);
-  const [items,   setItems]   = useState({});
+  const [view,     setView]    = useState('item');
+  const [deptFilter, setDept]  = useState('all');
+  const [events,   setEvents]  = useState(null);
+  const [eis,      setEis]     = useState([]);
+  const [items,    setItems]   = useState({});
   const [winStart, setWinStart] = useState(() => {
     const d = new Date(); d.setHours(0,0,0,0); d.setDate(d.getDate() - 7); return d;
   });
@@ -4532,6 +4533,10 @@ function CalendarTab({ onOpenDeployment, onOpenItem }) {
   }
 
   // ── Compute rows for the active view ───────────────────────────────────────
+  // Department filter applies to both views — narrows the event set first.
+  const eventsForView = deptFilter === 'all'
+    ? events
+    : events.filter(ev => (ev.departments || []).includes(deptFilter));
   let rows = [];
   let emptyText = '';
 
@@ -4541,7 +4546,7 @@ function CalendarTab({ onOpenDeployment, onOpenItem }) {
     // per item are possible (rare — same item assigned to two events) but
     // supported.
     const eventsById = {};
-    events.forEach(ev => { eventsById[ev.id] = ev; });
+    eventsForView.forEach(ev => { eventsById[ev.id] = ev; });
     const byItem = {};
     eis.forEach(ei => {
       const ev = eventsById[ei.event_id];
@@ -4584,7 +4589,7 @@ function CalendarTab({ onOpenDeployment, onOpenItem }) {
     // Deployment view — one bar per event spanning its date range
     const outCountByEvent = {};
     eis.forEach(r => { outCountByEvent[r.event_id] = (outCountByEvent[r.event_id] || 0) + 1; });
-    const decorated = events.map(ev => {
+    const decorated = eventsForView.map(ev => {
       // Prefer timestamps; fall back to dates parsed at local midnight so
       // the comparison with winStart/winEnd (also local midnight) is honest.
       const startSrc = ev.event_start_at || ev.event_start_date || ev.event_date;
@@ -4615,6 +4620,10 @@ function CalendarTab({ onOpenDeployment, onOpenItem }) {
           <button type="button" className={view === 'item' ? 'on' : ''} onClick={()=>setView('item')}>By item</button>
           <button type="button" className={view === 'deployment' ? 'on' : ''} onClick={()=>setView('deployment')}>By deployment</button>
         </div>
+        <select className="filter" value={deptFilter} onChange={e=>setDept(e.target.value)}>
+          <option value="all">All departments</option>
+          {DEPARTMENTS.map(d => <option key={d} value={d}>{d}</option>)}
+        </select>
         <button className="btn sm" onClick={()=>shift(-14)}>← Earlier</button>
         <button className="btn sm" onClick={jumpToToday}>Today</button>
         <button className="btn sm" onClick={()=>shift(14)}>Later →</button>
@@ -4725,11 +4734,34 @@ function EventsTab({ admin, openEventId, onOpened }) {
   const [events, setEvents]     = useState([]);
   const [selected, setSelected] = useState(null);
   const [newOpen, setNewOpen]   = useState(false);
+  const [deptFilter, setDept]   = useState('all');   // 'all' | DEPARTMENTS[n]
+  const [wfFilter,   setWf]     = useState('all');   // 'all' | workflow state
 
   useEffect(() => {
     sb.from('events').select('*').order('event_date', { ascending: false, nullsFirst: true })
       .then(({ data }) => setEvents(data || []));
   }, []);
+
+  // Realtime so the list reflects edits / new deployments / state changes
+  // without forcing the user to refresh
+  useEffect(() => {
+    const ch = sb.channel('events-list')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'events' }, ({ eventType, new: n, old: o }) => {
+        if (eventType === 'INSERT') setEvents(prev => [n, ...prev]);
+        else if (eventType === 'UPDATE') setEvents(prev => prev.map(p => p.id === n.id ? n : p));
+        else if (eventType === 'DELETE') setEvents(prev => prev.filter(p => p.id !== o.id));
+      })
+      .subscribe();
+    return () => sb.removeChannel(ch);
+  }, []);
+
+  // Filter the list by department + workflow state. Departments live as a
+  // TEXT[] column on events; "all" means no filter.
+  const filtered = events.filter(ev => {
+    if (deptFilter !== 'all' && !(ev.departments || []).includes(deptFilter)) return false;
+    if (wfFilter   !== 'all' && (ev.workflow_state || 'approved') !== wfFilter) return false;
+    return true;
+  });
 
   // open by id (deep-link)
   useEffect(() => {
@@ -4747,19 +4779,32 @@ function EventsTab({ admin, openEventId, onOpened }) {
 
   return (
     <div className="container">
-      <div style={{marginBottom:12, display:'flex', gap:8, alignItems:'center'}}>
+      <div className="controls" style={{marginBottom:12}}>
         {admin
           ? <button className="btn primary" onClick={()=>setNewOpen(true)}>+ New deployment</button>
           : <LoginPrompt verb="create deployments" />}
+        <select className="filter" value={deptFilter} onChange={e=>setDept(e.target.value)}>
+          <option value="all">All departments</option>
+          {DEPARTMENTS.map(d => <option key={d} value={d}>{d}</option>)}
+        </select>
+        <select className="filter" value={wfFilter} onChange={e=>setWf(e.target.value)}>
+          <option value="all">All states</option>
+          {WORKFLOW_STATES.map(s => <option key={s.v} value={s.v}>{s.label}</option>)}
+        </select>
       </div>
       {events.length === 0 ? (
         <div className="empty">
           {admin ? <>No deployments yet. <button className="link-btn" onClick={()=>setNewOpen(true)}>Create one →</button></>
             : 'No deployments yet.'}
         </div>
+      ) : filtered.length === 0 ? (
+        <div className="empty">
+          No deployments match your filters.{' '}
+          <button className="link-btn" onClick={()=>{ setDept('all'); setWf('all'); }}>Clear filters →</button>
+        </div>
       ) : (
         <div className="items">
-          {events.map(ev => {
+          {filtered.map(ev => {
             const wf = ev.workflow_state || 'approved';
             const wfLabel = WORKFLOW_STATES.find(s => s.v === wf)?.label || wf;
             return (
