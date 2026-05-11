@@ -2744,9 +2744,15 @@ function EventFormModal({
     // tracker buttons. Migration defaulted historical rows to 'approved'.
     // Master-created deployments skip the approval gate by default.
     const startState = admin?.role === 'master' ? 'approved' : 'draft';
+    const nowIso = new Date().toISOString();
     const q = isEdit ? sb.from('events').update(payload).eq('id', event.id).select().single() : sb.from('events').insert({
       ...payload,
-      workflow_state: startState
+      workflow_state: startState,
+      // Stamp who created the deployment so the WorkflowTracker has a
+      // name to show on auto-completed stages (master auto-approve
+      // skips the per-stage history rows that normally fill this in).
+      workflow_updated_at: nowIso,
+      workflow_updated_by: admin.name
     }).select().single();
     const {
       data,
@@ -3009,16 +3015,19 @@ function SendBackBanner({
       setComment(null);
       return;
     }
-    sb.from('event_comments').select('*').eq('event_id', event.id).like('body', '↶ Sent back:%').order('created_at', {
+    // Only fetch send-back comments newer than the most recent workflow
+    // transition. Server-side filter so we don't have to do Date math in JS.
+    // Previously this used a fragile `Date < Date - 1000` arithmetic which
+    // worked but was hard to read and easy to break.
+    let q = sb.from('event_comments').select('*').eq('event_id', event.id).like('body', '↶ Sent back:%');
+    if (event.workflow_updated_at) q = q.gte('created_at', event.workflow_updated_at);
+    q.order('created_at', {
       ascending: false
     }).limit(1).then(({
       data
     }) => setComment(data?.[0] || null));
-  }, [event.id, event.workflow_state]);
+  }, [event.id, event.workflow_state, event.workflow_updated_at]);
   if (!comment) return null;
-  // Only show if the send-back happened AFTER the most recent revision —
-  // i.e. comment.created_at > workflow_updated_at when state went to 'draft'.
-  if (event.workflow_updated_at && new Date(comment.created_at) < new Date(event.workflow_updated_at) - 1000) return null;
   const reason = comment.body.replace(/^↶ Sent back:\s*/, '');
   return /*#__PURE__*/React.createElement("div", {
     className: "send-back-banner"
@@ -3131,7 +3140,15 @@ function WorkflowTracker({
     className: "workflow-steps"
   }, WORKFLOW_STATES.map((s, i) => {
     const status = i < idx ? 'done' : i === idx ? 'current' : 'pending';
-    const meta = status === 'done' ? enteredAt[s.v] : null;
+    // Done stages prefer the explicit history entry. When that's
+    // missing (master auto-approve on create skips draft/requested/
+    // approved in one shot without inserting history per stage), fall
+    // back to the event's most recent workflow_updated_at + by so the
+    // stages don't show as anonymous checked-off boxes.
+    const meta = status === 'done' ? enteredAt[s.v] || (event.workflow_updated_by ? {
+      by: event.workflow_updated_by,
+      at: event.workflow_updated_at
+    } : null) : null;
     return /*#__PURE__*/React.createElement("li", {
       key: s.v,
       className: `workflow-step workflow-step-${status}`
